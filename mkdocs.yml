@@ -19,6 +19,7 @@ pages:
   - Features: features.md
   - Screenshots: screenshots.md
   - Supported Formats: supported-formats.md
+  - Mobile Viewer: mobile-viewer.md
   - Getting Started: getting-started.md
   - Modeling with Inkscape SVG: modeling-inkscape-svg.md
   - Modeling with OpenSCAD DXF: modeling-openscad-dxf.md
