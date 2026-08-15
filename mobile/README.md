@@ -19,6 +19,11 @@ Open the printed address on your phone (same Wi-Fi), then use the browser menu â
 You can also host the `mobile/` directory on any static web server or on GitHub Pages -
 it is plain HTML/CSS/JS with no build step.
 
+For GitHub Pages, point the publishing source at a branch with the `/ (root)` folder and
+open `https://<user>.github.io/<repo>/mobile/`.  The `.nojekyll` file in the repository root
+is required: Pages otherwise runs a Jekyll build, which fails on this repository because
+`debian/pycam.mime` is a dangling symlink.
+
 > Service workers (offline mode, share target, home screen install) need `localhost` or
 > **HTTPS**. Over plain `http://192.168.x.x` the viewer still works, it just is not
 > installable.
