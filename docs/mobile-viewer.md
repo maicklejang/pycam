@@ -16,10 +16,13 @@ same Wi-Fi) and choose *Add to home screen* in the browser menu.  The `mobile/` 
 plain static HTML/JS, so it can equally be published on any web server or on GitHub Pages.
 
 Offline mode and installation require `localhost` or an HTTPS origin, because service
-workers are not available over plain HTTP.  When publishing through GitHub Pages, select the
-`/ (root)` folder and open `https://<user>.github.io/<repo>/mobile/`; the `.nojekyll` file in
-the repository root keeps Pages from running a Jekyll build that this repository cannot
-complete.
+workers are not available over plain HTTP.
+
+To publish it on GitHub Pages, set *Settings → Pages → Source* to **GitHub Actions**.  The
+`Deploy mobile viewer` workflow uploads the `mobile/` directory on its own, and the viewer is
+then reachable at `https://<user>.github.io/<repo>/`.  Publishing the whole repository from a
+branch does not work: both Pages build modes walk the entire tree and stop at
+`debian/pycam.mime`, which is a dangling symlink.
 
 ## Using it
 
