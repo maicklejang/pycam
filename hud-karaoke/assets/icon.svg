@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="HUD 노래방">
+  <rect x="31" y="31" width="450" height="450" rx="113" fill="#000"/>
+  <g fill="#00505a">
+    <rect x="123" y="154" width="266" height="28" rx="14"/>
+    <rect x="154" y="317" width="205" height="28" rx="14"/>
+  </g>
+  <rect x="82" y="225" width="348" height="51" rx="26" fill="#00e5ff"/>
+</svg>

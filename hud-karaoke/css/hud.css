@@ -1,0 +1,923 @@
+/*
+ * HUD karaoke.
+ *
+ * Two rules drive the whole design:
+ *   1. A windshield reflects light, it does not subtract it.  Anything that is
+ *      not the lyric has to be pure black (#000) or it shows up as haze on the
+ *      glass, so there are no panels, borders or greys inside the stage.
+ *   2. The driver reads this in peripheral vision at a glance, so there is one
+ *      large line and nothing competing with it.
+ */
+
+:root {
+    --ui-bg: #0b0d10;
+    --ui-fg: #e8edf2;
+    --ui-dim: #8b97a5;
+    --ui-line: #1e242c;
+    --ui-accent: #00d6ff;
+    --font-scale: 1;
+    --line-squeeze: 1;
+    --stage-brightness: 1;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    color-scheme: dark;
+}
+
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Every overlay here is a class with its own `display`, which outranks the
+ * user agent rule for [hidden].  Without this a "hidden" overlay keeps eating
+ * taps, which in a car means a dead screen. */
+[hidden] {
+    display: none !important;
+}
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
+body {
+    background: #000;
+    color: var(--ui-fg);
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic",
+        system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* ------------------------------------------------------------------ stage */
+
+.stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: calc(var(--safe-top) + 2vh) calc(var(--safe-right) + 3vw)
+        calc(var(--safe-bottom) + 2vh) calc(var(--safe-left) + 3vw);
+    background: #000;
+    opacity: var(--stage-brightness);
+    transform-origin: center center;
+    transition: opacity 200ms linear;
+    --hud: #00e5ff;
+    --hud-dim: rgba(0, 229, 255, 0.34);
+    --hud-faint: rgba(0, 229, 255, 0.16);
+}
+
+.stage[data-color="green"] {
+    --hud: #3dff86;
+    --hud-dim: rgba(61, 255, 134, 0.34);
+    --hud-faint: rgba(61, 255, 134, 0.16);
+}
+
+.stage[data-color="amber"] {
+    --hud: #ffb020;
+    --hud-dim: rgba(255, 176, 32, 0.36);
+    --hud-faint: rgba(255, 176, 32, 0.18);
+}
+
+.stage[data-color="white"] {
+    --hud: #ffffff;
+    --hud-dim: rgba(255, 255, 255, 0.34);
+    --hud-faint: rgba(255, 255, 255, 0.16);
+}
+
+.hud-title {
+    flex: 0 0 auto;
+    margin-bottom: 1.2vh;
+    color: var(--hud-dim);
+    font-size: clamp(0.75rem, 2.1vw, 1.15rem);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hud-lines {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.6vh;
+    min-height: 0;
+    text-align: center;
+    text-wrap: balance;
+}
+
+.line {
+    margin: 0;
+    line-height: 1.16;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    word-break: keep-all;
+}
+
+.line-prev,
+.line-next {
+    font-size: calc(clamp(0.95rem, 3.1vw, 2rem) * var(--font-scale));
+    font-weight: 700;
+    color: var(--hud-faint);
+    max-width: 90%;
+}
+
+.line-prev {
+    color: var(--hud-faint);
+    opacity: 0.7;
+}
+
+.line-current {
+    position: relative;
+    width: 100%;
+    max-width: 96%;
+}
+
+.line-base,
+.line-fill {
+    font-size: calc(clamp(2rem, 8.4vw, 5.6rem) * var(--font-scale) * var(--line-squeeze));
+}
+
+.line-base {
+    color: var(--hud-dim);
+}
+
+/* The bright copy sits exactly on top and is revealed left to right. */
+.line-fill {
+    position: absolute;
+    inset: 0;
+    color: var(--hud);
+    text-shadow: 0 0 0.28em var(--hud-dim);
+    clip-path: inset(0 calc(100% - var(--fill, 0%)) 0 0);
+    will-change: clip-path;
+}
+
+.stage.no-glow .line-fill {
+    text-shadow: none;
+}
+
+.stage.hide-next .line-next,
+.stage.hide-next .line-prev {
+    visibility: hidden;
+}
+
+/* During an instrumental break there is nothing to sing, so the line that is
+ * about to start is promoted to be readable at a glance. */
+.stage.is-break .line-next {
+    color: var(--hud-dim);
+    font-size: calc(clamp(1.3rem, 4.6vw, 3rem) * var(--font-scale));
+}
+
+.stage.is-break .line-prev {
+    opacity: 0.35;
+}
+
+.stage.is-idle .line-current {
+    min-height: 1em;
+}
+
+.hud-empty {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 12vh;
+    margin: 0;
+    color: var(--hud-faint);
+    font-size: clamp(0.85rem, 2.4vw, 1.2rem);
+    text-align: center;
+}
+
+.stage.has-song .hud-empty {
+    display: none;
+}
+
+/* interlude countdown ---------------------------------------------------- */
+
+.hud-interlude {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 9vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6em;
+    color: var(--hud-dim);
+    font-size: clamp(1rem, 3.4vw, 2rem);
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    pointer-events: none;
+}
+
+.hud-interlude.imminent {
+    color: var(--hud);
+    animation: pulse 1s ease-in-out infinite;
+}
+
+.interlude-count {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+}
+
+/* progress --------------------------------------------------------------- */
+
+.hud-progress {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.8em;
+    color: var(--hud-faint);
+    font-size: clamp(0.7rem, 1.8vw, 0.95rem);
+    font-variant-numeric: tabular-nums;
+}
+
+.stage.hide-progress .hud-progress {
+    visibility: hidden;
+}
+
+.progress-track {
+    flex: 1 1 auto;
+    height: 2px;
+    background: var(--hud-faint);
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--hud-dim);
+    transform: scaleX(0);
+    transform-origin: left center;
+}
+
+/* --------------------------------------------------------------- controls */
+
+.controls {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.6rem calc(var(--safe-right) + 0.7rem) calc(var(--safe-bottom) + 0.7rem)
+        calc(var(--safe-left) + 0.7rem);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0));
+    transition: opacity 260ms ease, transform 260ms ease;
+}
+
+.controls.is-hidden {
+    opacity: 0;
+    transform: translateY(90%);
+    pointer-events: none;
+}
+
+.transport {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.1rem;
+    min-width: 4rem;
+    height: 3.4rem;
+    padding: 0 0.6rem;
+    border: 1px solid var(--ui-line);
+    border-radius: 0.9rem;
+    background: rgba(16, 20, 26, 0.9);
+    color: var(--ui-fg);
+    font: inherit;
+    cursor: pointer;
+}
+
+.btn:active {
+    background: rgba(40, 48, 60, 0.95);
+}
+
+.btn .glyph {
+    font-size: 1.2rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.btn .cap {
+    font-size: 0.62rem;
+    color: var(--ui-dim);
+}
+
+.btn-play {
+    min-width: 5.6rem;
+    border-color: transparent;
+    background: var(--ui-accent);
+    color: #001018;
+}
+
+.btn-play .glyph {
+    font-size: 1.4rem;
+}
+
+.btn-play:active {
+    background: #4fe4ff;
+}
+
+.secondary {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.4rem;
+}
+
+.chip {
+    min-height: 2.4rem;
+    padding: 0 0.85rem;
+    border: 1px solid var(--ui-line);
+    border-radius: 1.2rem;
+    background: rgba(16, 20, 26, 0.9);
+    color: var(--ui-fg);
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+}
+
+.chip:active {
+    background: rgba(40, 48, 60, 0.95);
+}
+
+.chip[aria-pressed="true"] {
+    border-color: var(--ui-accent);
+    color: var(--ui-accent);
+}
+
+.chip-strong {
+    border-color: transparent;
+    background: var(--ui-accent);
+    color: #001018;
+    font-weight: 700;
+}
+
+/* ------------------------------------------------------------------ panel */
+
+.panel {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    background: var(--ui-bg);
+    padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+}
+
+.panel-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid var(--ui-line);
+}
+
+.tabs {
+    display: flex;
+    flex: 1 1 auto;
+    gap: 0.3rem;
+    overflow-x: auto;
+}
+
+.tab {
+    min-height: 2.5rem;
+    padding: 0 0.9rem;
+    border: 0;
+    border-radius: 0.7rem;
+    background: transparent;
+    color: var(--ui-dim);
+    font: inherit;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.tab.is-active {
+    background: rgba(0, 214, 255, 0.12);
+    color: var(--ui-accent);
+}
+
+.close {
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 0;
+    border-radius: 0.7rem;
+    background: transparent;
+    color: var(--ui-fg);
+    font-size: 1.1rem;
+    cursor: pointer;
+}
+
+.panel-body {
+    flex: 1 1 auto;
+    padding: 0.9rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.tab-page {
+    display: none;
+}
+
+.tab-page.is-active {
+    display: block;
+}
+
+.section-title {
+    margin: 1.4rem 0 0.6rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--ui-dim);
+    text-transform: uppercase;
+}
+
+.muted {
+    color: var(--ui-dim);
+    font-weight: 400;
+}
+
+.add-song {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.file-drop {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.8rem 0.9rem;
+    border: 1px dashed var(--ui-line);
+    border-radius: 0.8rem;
+    cursor: pointer;
+}
+
+.file-drop:active {
+    border-color: var(--ui-accent);
+}
+
+.file-title {
+    font-weight: 600;
+}
+
+.file-hint {
+    color: var(--ui-dim);
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.field-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.text-input {
+    flex: 1 1 8rem;
+    min-height: 2.6rem;
+    padding: 0 0.7rem;
+    border: 1px solid var(--ui-line);
+    border-radius: 0.7rem;
+    background: #0f1319;
+    color: var(--ui-fg);
+    font: inherit;
+    font-size: 0.9rem;
+}
+
+.song-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.song-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.7rem 0.2rem;
+    border-bottom: 1px solid var(--ui-line);
+}
+
+.song-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.song-name {
+    display: block;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.song-meta {
+    display: block;
+    color: var(--ui-dim);
+    font-size: 0.75rem;
+}
+
+.song-item.is-current .song-name {
+    color: var(--ui-accent);
+}
+
+.icon-btn {
+    flex: 0 0 auto;
+    min-width: 2.4rem;
+    min-height: 2.4rem;
+    border: 1px solid var(--ui-line);
+    border-radius: 0.6rem;
+    background: transparent;
+    color: var(--ui-dim);
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.empty-hint {
+    padding: 1.2rem 0;
+    color: var(--ui-dim);
+    font-size: 0.85rem;
+}
+
+/* settings rows ---------------------------------------------------------- */
+
+.setting {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--ui-line);
+}
+
+.setting-block {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+}
+
+.setting-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-weight: 600;
+}
+
+.setting-label em {
+    color: var(--ui-dim);
+    font-size: 0.75rem;
+    font-style: normal;
+    font-weight: 400;
+}
+
+.switch input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.switch span {
+    display: block;
+    position: relative;
+    width: 3.1rem;
+    height: 1.8rem;
+    border-radius: 1rem;
+    background: #262d37;
+    transition: background 160ms ease;
+    cursor: pointer;
+}
+
+.switch span::after {
+    content: "";
+    position: absolute;
+    top: 0.2rem;
+    left: 0.2rem;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 50%;
+    background: #8b97a5;
+    transition: transform 160ms ease, background 160ms ease;
+}
+
+.switch input:checked + span {
+    background: rgba(0, 214, 255, 0.35);
+}
+
+.switch input:checked + span::after {
+    background: var(--ui-accent);
+    transform: translateX(1.3rem);
+}
+
+input[type="range"] {
+    width: 100%;
+    height: 2.2rem;
+    accent-color: var(--ui-accent);
+    background: transparent;
+}
+
+.swatches {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.swatch {
+    flex: 1 1 0;
+    min-height: 2.8rem;
+    border: 2px solid var(--ui-line);
+    border-radius: 0.7rem;
+    background: #000;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.swatch[data-color="cyan"] { color: #00e5ff; }
+.swatch[data-color="green"] { color: #3dff86; }
+.swatch[data-color="amber"] { color: #ffb020; }
+.swatch[data-color="white"] { color: #fff; }
+
+.swatch.is-active {
+    border-color: currentColor;
+}
+
+.notice {
+    margin: 0.4rem 0 1rem;
+    padding: 0.8rem 0.9rem;
+    border-radius: 0.7rem;
+    background: rgba(255, 176, 32, 0.1);
+    color: #ffd79a;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.notice.muted {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--ui-dim);
+}
+
+.help-list {
+    margin: 0 0 1rem;
+    padding-left: 1.2rem;
+    font-size: 0.88rem;
+    line-height: 1.7;
+}
+
+.help-list b {
+    color: var(--ui-accent);
+}
+
+/* -------------------------------------------------------------- tap sync */
+
+.tapsync {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: calc(var(--safe-top) + 0.8rem) calc(var(--safe-right) + 0.9rem)
+        calc(var(--safe-bottom) + 0.9rem) calc(var(--safe-left) + 0.9rem);
+    background: var(--ui-bg);
+}
+
+.tapsync-head {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+}
+
+.tapsync-title {
+    flex: 1 1 auto;
+    font-weight: 700;
+}
+
+.tapsync-time {
+    font-variant-numeric: tabular-nums;
+    color: var(--ui-accent);
+    font-weight: 700;
+}
+
+.tapsync-lines {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.8rem;
+    min-height: 0;
+    text-align: center;
+}
+
+.tapsync-line {
+    max-width: 95%;
+}
+
+.tapsync-done {
+    color: var(--ui-dim);
+    font-size: 0.95rem;
+}
+
+.tapsync-now {
+    color: var(--ui-fg);
+    font-size: clamp(1.4rem, 5vw, 2.4rem);
+    font-weight: 800;
+    line-height: 1.2;
+    word-break: keep-all;
+}
+
+.tapsync-soon {
+    color: var(--ui-dim);
+    font-size: 1rem;
+}
+
+.tapsync-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.tapsync-hit {
+    flex: 1 1 auto;
+    min-height: 5rem;
+    border: 0;
+    border-radius: 1rem;
+    background: var(--ui-accent);
+    color: #001018;
+    font: inherit;
+    font-size: 1.4rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.tapsync-hit:active {
+    background: #4fe4ff;
+}
+
+/* ------------------------------------------------------------- drive lock */
+
+.lock {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(1px);
+    touch-action: none;
+}
+
+.lock-ring-wrap {
+    position: absolute;
+    width: min(38vh, 38vw);
+    height: min(38vh, 38vw);
+    transform: rotate(-90deg);
+    opacity: 0.25;
+}
+
+.lock.holding .lock-ring-wrap {
+    opacity: 0.9;
+}
+
+.lock-ring-bg,
+.lock-ring {
+    fill: none;
+    stroke-width: 3;
+}
+
+.lock-ring-bg {
+    stroke: rgba(255, 255, 255, 0.12);
+}
+
+.lock-ring {
+    stroke: var(--ui-accent);
+    stroke-dasharray: 264;
+    stroke-dashoffset: 264;
+    transition: stroke-dashoffset 180ms linear;
+}
+
+.lock-text {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.lock-text b {
+    font-size: 1.05rem;
+    letter-spacing: 0.08em;
+}
+
+/* ---------------------------------------------------------------- safety */
+
+.safety {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.2rem;
+    background: rgba(0, 0, 0, 0.85);
+}
+
+.safety-card {
+    max-width: 30rem;
+    padding: 1.4rem;
+    border: 1px solid var(--ui-line);
+    border-radius: 1rem;
+    background: var(--ui-bg);
+}
+
+.safety-card h2 {
+    margin: 0 0 0.6rem;
+    font-size: 1.1rem;
+}
+
+.safety-card p {
+    margin: 0 0 1.2rem;
+    color: var(--ui-dim);
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+/* ----------------------------------------------------------------- toast */
+
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--safe-bottom) + 8.5rem);
+    z-index: 50;
+    transform: translateX(-50%);
+    padding: 0.6rem 1rem;
+    border-radius: 0.7rem;
+    background: rgba(20, 25, 32, 0.95);
+    color: var(--ui-fg);
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+
+/* Short screens (a phone lying in landscape) get a tighter control strip. */
+@media (max-height: 460px) {
+    .btn {
+        height: 2.9rem;
+        min-width: 3.4rem;
+    }
+    .chip {
+        min-height: 2.1rem;
+        font-size: 0.76rem;
+    }
+    .hud-interlude {
+        bottom: 12vh;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hud-interlude.imminent {
+        animation: none;
+    }
+    .controls {
+        transition: none;
+    }
+}
