@@ -44,6 +44,9 @@
   <button class="tool" id="btn-fit" data-i18n-title="fit" title="맞춤">
     <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
   </button>
+  <button class="tool" id="btn-measure" data-i18n-title="measure" title="치수 측정">
+    <svg viewBox="0 0 24 24"><path d="M3 14.5 14.5 3 21 9.5 9.5 21z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.5 10 9 11.5M10.5 7 12 8.5M13.5 4.5 15 6M6 13l1.5 1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+  </button>
   <button class="tool" id="btn-view" data-i18n-title="views" title="시점">
     <svg viewBox="0 0 24 24"><path d="M3 8.5 12 4l9 4.5-9 4.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m3 12.5 9 4.5 9-4.5M3 16.5 12 21l9-4.5" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".7"/></svg>
   </button>
@@ -128,6 +131,16 @@
     <div class="bar"><i id="progress-bar"></i></div>
     <span id="progress-label">…</span>
   </div>
+</div>
+
+<div class="measure-bar" id="measure-bar" hidden>
+  <div class="measure-text">
+    <strong id="measure-main">–</strong>
+    <span id="measure-detail"></span>
+  </div>
+  <button class="measure-clear" id="measure-clear" data-i18n-title="clearMeasure" title="지우기">
+    <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
 </div>
 
 <div class="toast" id="toast" hidden></div>

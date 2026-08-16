@@ -74,7 +74,105 @@
             out[3] = mv[4]; out[4] = mv[5]; out[5] = mv[6];
             out[6] = mv[8]; out[7] = mv[9]; out[8] = mv[10];
             return out;
+        },
+        /* General inverse, needed to turn a tap back into a world space ray. */
+        invert: function (out, m) {
+            var a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];
+            var a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
+            var a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];
+            var a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];
+            var b00 = a00 * a11 - a01 * a10;
+            var b01 = a00 * a12 - a02 * a10;
+            var b02 = a00 * a13 - a03 * a10;
+            var b03 = a01 * a12 - a02 * a11;
+            var b04 = a01 * a13 - a03 * a11;
+            var b05 = a02 * a13 - a03 * a12;
+            var b06 = a20 * a31 - a21 * a30;
+            var b07 = a20 * a32 - a22 * a30;
+            var b08 = a20 * a33 - a23 * a30;
+            var b09 = a21 * a32 - a22 * a31;
+            var b10 = a21 * a33 - a23 * a31;
+            var b11 = a22 * a33 - a23 * a32;
+            var det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+            if (!det) {
+                return null;
+            }
+            det = 1 / det;
+            out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
+            out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+            out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
+            out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
+            out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
+            out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+            out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
+            out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
+            out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
+            out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+            out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
+            out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
+            out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
+            out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
+            out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
+            out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
+            return out;
         }
+    };
+
+    /* --- picking maths (kept free of WebGL so the tests can reach it) ------- */
+
+    /* Moeller-Trumbore. Returns the ray parameter of the hit, or -1. */
+    function rayTriangle(origin, direction, ax, ay, az, bx, by, bz, cx, cy, cz) {
+        var e1x = bx - ax, e1y = by - ay, e1z = bz - az;
+        var e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+        var px = direction[1] * e2z - direction[2] * e2y;
+        var py = direction[2] * e2x - direction[0] * e2z;
+        var pz = direction[0] * e2y - direction[1] * e2x;
+        var det = e1x * px + e1y * py + e1z * pz;
+        if (det > -1e-12 && det < 1e-12) {
+            return -1;                     // ray is parallel to the triangle
+        }
+        var inv = 1 / det;
+        var tx = origin[0] - ax, ty = origin[1] - ay, tz = origin[2] - az;
+        var u = (tx * px + ty * py + tz * pz) * inv;
+        if (u < -1e-6 || u > 1 + 1e-6) {
+            return -1;
+        }
+        var qx = ty * e1z - tz * e1y;
+        var qy = tz * e1x - tx * e1z;
+        var qz = tx * e1y - ty * e1x;
+        var v = (direction[0] * qx + direction[1] * qy + direction[2] * qz) * inv;
+        if (v < -1e-6 || u + v > 1 + 1e-6) {
+            return -1;
+        }
+        var t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+        return t > 1e-6 ? t : -1;
+    }
+
+    /* Distance from a point to a segment in 2D, plus the segment parameter. */
+    function closestOnSegment2D(px, py, ax, ay, bx, by) {
+        var dx = bx - ax, dy = by - ay;
+        var lengthSq = dx * dx + dy * dy;
+        var u = lengthSq > 1e-12 ? ((px - ax) * dx + (py - ay) * dy) / lengthSq : 0;
+        u = Math.max(0, Math.min(1, u));
+        var qx = ax + dx * u, qy = ay + dy * u;
+        return {u: u, distance: Math.hypot(px - qx, py - qy)};
+    }
+
+    /* A point that divides a segment at `u` on screen sits at a different
+     * fraction in space; undo the projective distortion. */
+    function perspectiveParameter(u, wa, wb) {
+        var denominator = (1 - u) / wa + u / wb;
+        if (!isFinite(denominator) || Math.abs(denominator) < 1e-12) {
+            return u;
+        }
+        return (u / wb) / denominator;
+    }
+
+    P.pickMath = {
+        rayTriangle: rayTriangle,
+        closestOnSegment2D: closestOnSegment2D,
+        perspectiveParameter: perspectiveParameter,
+        invertMatrix: M4.invert
     };
 
     /* --- shaders ----------------------------------------------------------- */
@@ -214,6 +312,8 @@
         this.view = M4.identity();
         this.proj = M4.identity();
         this.normalMatrix = new Float32Array(9);
+        this.inverseMVP = M4.identity();
+        this.measure = {active: false, points: [], onChange: null};
 
         this.setupInput();
         this.resize();
@@ -280,10 +380,12 @@
         drop(this.buffers.axes);
         drop(this.buffers.bbox);
         drop(this.buffers.wireframe);
+        drop(this.buffers.measure);
         this.buffers.edges.forEach(drop);
         this.buffers = {mesh: null, edges: [], grid: null, axes: null, bbox: null,
-                        wireframe: null};
+                        wireframe: null, measure: null};
         this.rawMesh = null;
+        this.measure.points = [];
     };
 
     Viewer.prototype.setModel = function (result) {
@@ -491,9 +593,13 @@
             if (self.pointers.size === 2) {
                 self.pinch = self.pinchState();
             }
+            self.tapCandidate = self.pointers.size === 1
+                ? {x: event.clientX, y: event.clientY, time: Date.now(),
+                   id: event.pointerId}
+                : null;
             var now = Date.now();
             if (event.pointerType !== "mouse" && now - self.lastTap < 300
-                    && self.pointers.size === 1) {
+                    && self.pointers.size === 1 && !self.measure.active) {
                 self.fit();
             }
             self.lastTap = now;
@@ -508,6 +614,10 @@
             var dy = event.clientY - pointer.y;
             pointer.x = event.clientX;
             pointer.y = event.clientY;
+            if (self.tapCandidate && (Math.abs(event.clientX - self.tapCandidate.x) > 8
+                    || Math.abs(event.clientY - self.tapCandidate.y) > 8)) {
+                self.tapCandidate = null;      // turned into a drag
+            }
             if (self.pointers.size === 1) {
                 var panning = pointer.button === 1 || pointer.button === 2
                     || event.shiftKey || self.options.lockRotation;
@@ -527,9 +637,15 @@
         });
 
         function release(event) {
+            var tap = self.tapCandidate;
             self.pointers.delete(event.pointerId);
             if (self.pointers.size < 2) {
                 self.pinch = null;
+            }
+            self.tapCandidate = null;
+            if (tap && tap.id === event.pointerId && self.measure.active
+                    && event.type === "pointerup" && Date.now() - tap.time < 700) {
+                self.addMeasurePoint(event.clientX, event.clientY);
             }
         }
         canvas.addEventListener("pointerup", release);
@@ -543,7 +659,9 @@
             event.preventDefault();
         }, {passive: false});
         canvas.addEventListener("dblclick", function () {
-            self.fit();
+            if (!self.measure.active) {
+                self.fit();
+            }
         });
     };
 
@@ -586,6 +704,266 @@
         this.camera.distance = Math.max(this.modelRadius * 1e-3,
             Math.min(this.camera.distance * factor, this.modelRadius * 400));
         this.invalidate();
+    };
+
+
+    /* --- picking and measuring ---------------------------------------------- */
+
+    /* World point -> CSS pixels (plus clip w, so callers can undo perspective). */
+    Viewer.prototype.project = function (point) {
+        var m = this.mvp;
+        var w = m[3] * point[0] + m[7] * point[1] + m[11] * point[2] + m[15];
+        if (!(w > 1e-9)) {
+            return null;                    // behind the camera
+        }
+        var x = (m[0] * point[0] + m[4] * point[1] + m[8] * point[2] + m[12]) / w;
+        var y = (m[1] * point[0] + m[5] * point[1] + m[9] * point[2] + m[13]) / w;
+        var width = this.canvas.clientWidth || this.canvas.width;
+        var height = this.canvas.clientHeight || this.canvas.height;
+        return {x: (x * 0.5 + 0.5) * width, y: (0.5 - y * 0.5) * height, w: w};
+    };
+
+    Viewer.prototype.screenRay = function (clientX, clientY) {
+        var rect = this.canvas.getBoundingClientRect();
+        var ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+        var ndcY = 1 - ((clientY - rect.top) / rect.height) * 2;
+        if (!M4.invert(this.inverseMVP, this.mvp)) {
+            return null;
+        }
+        var near = unproject(this.inverseMVP, ndcX, ndcY, -1);
+        var far = unproject(this.inverseMVP, ndcX, ndcY, 1);
+        if (!near || !far) {
+            return null;
+        }
+        var dx = far[0] - near[0], dy = far[1] - near[1], dz = far[2] - near[2];
+        var length = Math.hypot(dx, dy, dz);
+        if (!(length > 1e-12)) {
+            return null;
+        }
+        return {origin: near, direction: [dx / length, dy / length, dz / length]};
+    };
+
+    function unproject(inverse, x, y, z) {
+        var w = inverse[3] * x + inverse[7] * y + inverse[11] * z + inverse[15];
+        if (Math.abs(w) < 1e-12) {
+            return null;
+        }
+        return [
+            (inverse[0] * x + inverse[4] * y + inverse[8] * z + inverse[12]) / w,
+            (inverse[1] * x + inverse[5] * y + inverse[9] * z + inverse[13]) / w,
+            (inverse[2] * x + inverse[6] * y + inverse[10] * z + inverse[14]) / w
+        ];
+    }
+
+    function rayParameter(ray, point) {
+        return (point[0] - ray.origin[0]) * ray.direction[0]
+            + (point[1] - ray.origin[1]) * ray.direction[1]
+            + (point[2] - ray.origin[2]) * ray.direction[2];
+    }
+
+    var SNAP_RADIUS = 26;      // CSS pixels
+
+    /* Returns {point, kind} for a tap, preferring model edges and their end
+     * points over the plain surface so that measurements land where a person
+     * aims: corners first, edges next, faces last. */
+    Viewer.prototype.pickPoint = function (clientX, clientY) {
+        if (!this.model) {
+            return null;
+        }
+        var ray = this.screenRay(clientX, clientY);
+        if (!ray) {
+            return null;
+        }
+        var rect = this.canvas.getBoundingClientRect();
+        var tapX = clientX - rect.left;
+        var tapY = clientY - rect.top;
+
+        var edgeHit = this.pickEdges(tapX, tapY, ray);
+        var surfaceHit = this.pickSurface(ray, tapX, tapY);
+
+        if (edgeHit && surfaceHit) {
+            // Keep the snap unless it sits clearly behind the visible surface.
+            var slack = Math.max(this.modelRadius * 0.02, 1e-9);
+            if (edgeHit.depth <= surfaceHit.depth + slack) {
+                return edgeHit;
+            }
+            return surfaceHit;
+        }
+        return edgeHit || surfaceHit || null;
+    };
+
+    Viewer.prototype.pickEdges = function (tapX, tapY, ray) {
+        var layers = this.buffers.edges;
+        if (!layers.length || !this.model.edges) {
+            return null;
+        }
+        var best = null;
+        for (var l = 0; l < layers.length; l++) {
+            if (!layers[l].visible) {
+                continue;
+            }
+            var positions = this.model.edges[layers[l].index].positions;
+            for (var i = 0; i + 5 < positions.length; i += 6) {
+                var a = [positions[i], positions[i + 1], positions[i + 2]];
+                var b = [positions[i + 3], positions[i + 4], positions[i + 5]];
+                var pa = this.project(a);
+                var pb = this.project(b);
+                if (!pa || !pb) {
+                    continue;
+                }
+                // end points win over the segment body: a corner is what people aim at
+                var da = Math.hypot(tapX - pa.x, tapY - pa.y);
+                var db = Math.hypot(tapX - pb.x, tapY - pb.y);
+                var vertex = da <= db ? {point: a, distance: da} : {point: b, distance: db};
+                if (vertex.distance <= SNAP_RADIUS
+                        && (!best || best.kind !== "vertex" || vertex.distance < best.distance)) {
+                    best = {point: vertex.point, kind: "vertex", distance: vertex.distance,
+                            depth: rayParameter(ray, vertex.point)};
+                    continue;
+                }
+                if (best && best.kind === "vertex") {
+                    continue;
+                }
+                var onSegment = closestOnSegment2D(tapX, tapY, pa.x, pa.y, pb.x, pb.y);
+                if (onSegment.distance <= SNAP_RADIUS
+                        && (!best || onSegment.distance < best.distance)) {
+                    var t = perspectiveParameter(onSegment.u, pa.w, pb.w);
+                    var point = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t,
+                                 a[2] + (b[2] - a[2]) * t];
+                    best = {point: point, kind: "edge", distance: onSegment.distance,
+                            depth: rayParameter(ray, point)};
+                }
+            }
+        }
+        return best;
+    };
+
+    Viewer.prototype.pickSurface = function (ray, tapX, tapY) {
+        if (!this.rawMesh) {
+            return null;
+        }
+        var positions = this.rawMesh.positions;
+        var nearest = Infinity;
+        var index = -1;
+        for (var i = 0; i + 8 < positions.length; i += 9) {
+            var t = rayTriangle(ray.origin, ray.direction,
+                                positions[i], positions[i + 1], positions[i + 2],
+                                positions[i + 3], positions[i + 4], positions[i + 5],
+                                positions[i + 6], positions[i + 7], positions[i + 8]);
+            if (t > 0 && t < nearest) {
+                nearest = t;
+                index = i;
+            }
+        }
+        if (index < 0) {
+            return null;
+        }
+        var point = [
+            ray.origin[0] + ray.direction[0] * nearest,
+            ray.origin[1] + ray.direction[1] * nearest,
+            ray.origin[2] + ray.direction[2] * nearest
+        ];
+        // snap to a corner of the triangle that was hit, when the tap is close
+        var best = null;
+        for (var c = 0; c < 3; c++) {
+            var corner = [positions[index + c * 3], positions[index + c * 3 + 1],
+                          positions[index + c * 3 + 2]];
+            var projected = this.project(corner);
+            if (!projected) {
+                continue;
+            }
+            var distance = Math.hypot(tapX - projected.x, tapY - projected.y);
+            if (distance <= SNAP_RADIUS && (!best || distance < best.distance)) {
+                best = {point: corner, distance: distance};
+            }
+        }
+        if (best) {
+            return {point: best.point, kind: "vertex", distance: best.distance,
+                    depth: rayParameter(ray, best.point)};
+        }
+        return {point: point, kind: "surface", distance: 0, depth: nearest};
+    };
+
+    Viewer.prototype.setMeasureActive = function (active) {
+        this.measure.active = !!active;
+        if (!active) {
+            this.clearMeasure();
+        } else {
+            this.notifyMeasure();
+        }
+        this.invalidate();
+    };
+
+    Viewer.prototype.clearMeasure = function () {
+        this.measure.points = [];
+        this.buildMeasureBuffer();
+        this.notifyMeasure();
+        this.invalidate();
+    };
+
+    Viewer.prototype.addMeasurePoint = function (clientX, clientY) {
+        var hit = this.pickPoint(clientX, clientY);
+        if (!hit) {
+            this.notifyMeasure("miss");
+            return null;
+        }
+        if (this.measure.points.length >= 2) {
+            this.measure.points = [];
+        }
+        this.measure.points.push(hit);
+        this.buildMeasureBuffer();
+        this.notifyMeasure();
+        this.invalidate();
+        return hit;
+    };
+
+    Viewer.prototype.notifyMeasure = function (note) {
+        if (this.measure.onChange) {
+            this.measure.onChange(this.measureState(note));
+        }
+    };
+
+    Viewer.prototype.measureState = function (note) {
+        var points = this.measure.points;
+        var state = {count: points.length, note: note || null,
+                     points: points.map(function (hit) {
+                         return {point: hit.point.slice(), kind: hit.kind};
+                     })};
+        if (points.length === 2) {
+            var a = points[0].point, b = points[1].point;
+            state.delta = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            state.distance = Math.hypot(state.delta[0], state.delta[1], state.delta[2]);
+        }
+        return state;
+    };
+
+    Viewer.prototype.buildMeasureBuffer = function () {
+        if (this.buffers.measure) {
+            this.gl.deleteBuffer(this.buffers.measure.position);
+            this.buffers.measure = null;
+        }
+        var points = this.measure.points;
+        if (!points.length) {
+            return;
+        }
+        var size = Math.max(this.modelRadius * 0.03, 1e-9);
+        var data = [];
+        points.forEach(function (hit) {
+            var p = hit.point;
+            for (var axis = 0; axis < 3; axis++) {
+                var from = p.slice();
+                var to = p.slice();
+                from[axis] -= size;
+                to[axis] += size;
+                data.push(from[0], from[1], from[2], to[0], to[1], to[2]);
+            }
+        });
+        if (points.length === 2) {
+            data.push(points[0].point[0], points[0].point[1], points[0].point[2],
+                      points[1].point[0], points[1].point[1], points[1].point[2]);
+        }
+        this.buffers.measure = {position: this.makeBuffer(new Float32Array(data)),
+                                count: data.length / 3};
     };
 
     /* --- drawing ------------------------------------------------------------ */
@@ -660,6 +1038,12 @@
         }
         if (this.options.showBBox && this.buffers.bbox) {
             this.drawLines(this.buffers.bbox, [0.95, 0.62, 0.25], 0.75, 1, 0);
+        }
+        if (this.buffers.measure) {
+            // always on top, so a marker never disappears inside the model
+            gl.disable(gl.DEPTH_TEST);
+            this.drawLines(this.buffers.measure, [1.0, 0.78, 0.25], 1, 2, 0);
+            gl.enable(gl.DEPTH_TEST);
         }
     };
 

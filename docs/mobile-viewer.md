@@ -32,6 +32,10 @@ branch does not work: both Pages build modes walk the entire tree and stop at
   wireframe), the grid, and exporting the current view as a PNG.
 * The bottom sheet shows the bounding box dimensions, triangle, face and entity counts,
   the drawing units, and - for DXF - the layer list with per-layer visibility.
+* The ruler button measures: tap two points and the readout gives the distance and its
+  X/Y/Z components.  Taps snap to corners first, then to edges, then to the surface, so a
+  measurement between two features is repeatable.  Rotating and zooming still work while
+  measuring - only a tap picks a point.
 
 ## Opening files from the file manager
 

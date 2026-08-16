@@ -39,6 +39,7 @@ repository root is still there to keep Jekyll out of the way.)
 | **Open** | file picker, drag & drop, `?url=…`, "share to app" from another app, OS file association |
 | **View** | orbit / pan / pinch zoom, isometric + 6 standard views, perspective or orthographic |
 | **Inspect** | bounding box dimensions, triangle / face / entity counts, units, DXF layers with visibility toggles |
+| **Measure** | tap two points for the distance and its X/Y/Z components, snapping to corners and edges |
 | **Display** | solid, solid + edges, wireframe, grid, axes, bounding box |
 | **Share** | export the current view as a PNG (Web Share or download) |
 | **Remember** | the last 5 files (up to 32 MB each) are kept in IndexedDB for one-tap reopening |
@@ -47,6 +48,24 @@ Gestures: one finger rotates (pans for 2D drawings), two fingers pinch to zoom a
 pan, double tap fits the model. On a desktop: left drag rotates, right/middle drag pans,
 the wheel zooms, and `F` / `0` / `1` / `2` / `3` / `O` are shortcuts for fit, isometric,
 front, right, top and open.
+
+## Measuring
+
+The ruler button turns the canvas into a measuring surface: tap two points and the bar
+above the info panel shows the distance between them plus the ΔX / ΔY / ΔZ components, in
+the drawing's own units when the file states them.  Rotating, panning and zooming keep
+working while measuring; only a tap (a press that does not turn into a drag) picks a point.
+
+Taps snap, in this order:
+
+1. **Corners** - end points of model edges, or of the triangle under the finger, within
+   26 px of the tap.  This is what makes a measurement repeatable.
+2. **Edges** - the closest point along a model edge, with the projection undone so that a
+   point picked half way across the screen is not reported half way along in space.
+3. **Faces** - wherever the ray meets the surface, when nothing sharper is nearby.
+
+An edge only wins over a face when it is not hidden behind it, so a tap picks what is
+actually visible.  The picked points are drawn as markers that stay on top of the model.
 
 ## Format support
 

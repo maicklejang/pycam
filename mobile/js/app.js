@@ -15,7 +15,8 @@
      "btn-view", "btn-shading", "btn-grid", "btn-share", "view-menu", "side-tools", "welcome",
      "panel", "panel-handle", "stats", "warnings", "layer-list", "sel-shading", "sel-projection",
      "chk-grid", "chk-axes", "chk-bbox", "chk-lock", "progress", "progress-bar", "progress-label",
-     "toast", "file-input", "recent", "recent-list", "tab-info", "tab-layers", "tab-display"
+     "toast", "file-input", "recent", "recent-list", "tab-info", "tab-layers", "tab-display",
+     "btn-measure", "measure-bar", "measure-main", "measure-detail", "measure-clear"
     ].forEach(function (id) {
         el[id] = doc.getElementById(id);
     });
@@ -31,6 +32,7 @@
 
     if (viewer) {
         viewer.insetBottom = 96;   // height of the collapsed info panel
+        P.viewer = viewer;         // handle for embedders and for the browser tests
     }
 
     var worker = null;
@@ -191,6 +193,7 @@
             el.warnings.hidden = true;
         }
 
+        stopMeasuring();
         buildLayerList(result);
         el["sel-shading"].value = viewer.options.shading;
         el["btn-shading"].classList.toggle("on", viewer.options.shading !== "shaded");
@@ -253,6 +256,79 @@
             el["layer-list"].appendChild(li);
         });
     }
+
+
+    /* --- measuring ------------------------------------------------------------ */
+
+    function modelUnit() {
+        if (!currentModel) {
+            return "";
+        }
+        var unit = (currentModel.stats || []).filter(function (entry) {
+            return entry[0] === "Units";
+        })[0];
+        return unit && typeof unit[1] === "string" ? " " + unit[1] : "";
+    }
+
+    function measureNumber(value) {
+        var magnitude = Math.abs(value);
+        var digits = magnitude >= 100 ? 2 : (magnitude >= 1 ? 3 : 4);
+        return value.toFixed(digits).replace(/\.?0+$/, "");
+    }
+
+    function showMeasurement(state) {
+        var unit = modelUnit();
+        if (state.note === "miss") {
+            el["measure-main"].textContent = t("measureMiss");
+            el["measure-detail"].textContent = "";
+            return;
+        }
+        if (state.count === 0) {
+            el["measure-main"].textContent = t("measureStart");
+            el["measure-detail"].textContent = "";
+            return;
+        }
+        if (state.count === 1) {
+            var p = state.points[0];
+            el["measure-main"].textContent = t("measureSecond");
+            el["measure-detail"].textContent = t("measurePoint") + " 1 ("
+                + t("snap" + p.kind.charAt(0).toUpperCase() + p.kind.slice(1)) + "): "
+                + p.point.map(measureNumber).join(", ");
+            return;
+        }
+        el["measure-main"].textContent = t("measureDistance") + " "
+            + measureNumber(state.distance) + unit;
+        el["measure-detail"].textContent = "ΔX " + measureNumber(state.delta[0])
+            + " · ΔY " + measureNumber(state.delta[1])
+            + " · ΔZ " + measureNumber(state.delta[2]);
+    }
+
+    function stopMeasuring() {
+        if (!viewer || !viewer.measure.active) {
+            return;
+        }
+        viewer.setMeasureActive(false);
+        el["measure-bar"].hidden = true;
+        el["btn-measure"].classList.remove("on");
+    }
+
+    if (viewer) {
+        viewer.measure.onChange = showMeasurement;
+    }
+
+    el["btn-measure"].addEventListener("click", function () {
+        var next = !viewer.measure.active;
+        viewer.setMeasureActive(next);
+        el["btn-measure"].classList.toggle("on", next);
+        el["measure-bar"].hidden = !next;
+        if (next) {
+            el.panel.classList.add("collapsed");
+        }
+    });
+
+    el["measure-clear"].addEventListener("click", function () {
+        viewer.clearMeasure();
+    });
 
     /* --- file intake --------------------------------------------------------- */
 

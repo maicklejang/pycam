@@ -18,6 +18,7 @@ require("../js/parsers/stl.js");
 require("../js/parsers/dxf.js");
 require("../js/parsers/step.js");
 require("../js/parsers/index.js");
+require("../js/viewer.js");
 
 var P = globalThis.PVX;
 var HERE = __dirname;
@@ -272,6 +273,63 @@ test("concave polygon", function () {
         area += Math.abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) / 2;
     }
     assertClose(area, 70, 1e-6, "shoelace area");
+});
+
+console.log("\npicking");
+
+test("ray/triangle intersection", function () {
+    var hit = P.pickMath.rayTriangle([0, 0, 10], [0, 0, -1],
+                                     -1, -1, 0, 1, -1, 0, 0, 1, 0);
+    assertClose(hit, 10, 1e-9, "hits the triangle 10 units away");
+    var miss = P.pickMath.rayTriangle([5, 5, 10], [0, 0, -1],
+                                      -1, -1, 0, 1, -1, 0, 0, 1, 0);
+    assert(miss < 0, "misses when the ray is outside the triangle");
+    var behind = P.pickMath.rayTriangle([0, 0, 10], [0, 0, 1],
+                                        -1, -1, 0, 1, -1, 0, 0, 1, 0);
+    assert(behind < 0, "does not hit behind the ray origin");
+});
+
+test("closest point on a screen segment", function () {
+    var result = P.pickMath.closestOnSegment2D(5, 3, 0, 0, 10, 0);
+    assertClose(result.u, 0.5, 1e-9, "parameter at the middle");
+    assertClose(result.distance, 3, 1e-9, "perpendicular distance");
+    var clamped = P.pickMath.closestOnSegment2D(-4, 0, 0, 0, 10, 0);
+    assertClose(clamped.u, 0, 1e-9, "clamped to the start");
+    assertClose(clamped.distance, 4, 1e-9, "distance to the start point");
+});
+
+test("perspective correction of a segment parameter", function () {
+    // equal depths: the screen parameter is already the spatial one
+    assertClose(P.pickMath.perspectiveParameter(0.5, 4, 4), 0.5, 1e-9, "no distortion");
+    // A receding segment: its near half covers more of the screen, so the screen
+    // midpoint is only a quarter of the way along in space.  Check by hand with
+    // A=(1,0,-1) and B=(1,0,-3): the projected x values are 1 and 1/3, their mean
+    // is 2/3, and 1/(1+2t)=2/3 gives t=0.25.
+    var t = P.pickMath.perspectiveParameter(0.5, 1, 3);
+    assertClose(t, 0.25, 1e-9, "screen midpoint of a receding segment");
+    assertClose(P.pickMath.perspectiveParameter(0, 1, 3), 0, 1e-9, "start stays put");
+    assertClose(P.pickMath.perspectiveParameter(1, 1, 3), 1, 1e-9, "end stays put");
+});
+
+test("matrix inverse round-trips", function () {
+    var m = new Float32Array([2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1, -1, 5, 6, 7, 1]);
+    var inv = P.pickMath.invertMatrix(new Float32Array(16), m);
+    assert(inv, "invertible");
+    var product = new Array(16).fill(0);
+    for (var c = 0; c < 4; c++) {
+        for (var r = 0; r < 4; r++) {
+            var sum = 0;
+            for (var k = 0; k < 4; k++) {
+                sum += m[k * 4 + r] * inv[c * 4 + k];
+            }
+            product[c * 4 + r] = sum;
+        }
+    }
+    for (var i = 0; i < 16; i++) {
+        assertClose(product[i], i % 5 === 0 ? 1 : 0, 1e-6, "identity at " + i);
+    }
+    assert(!P.pickMath.invertMatrix(new Float32Array(16), new Float32Array(16)),
+           "a singular matrix returns null");
 });
 
 console.log("\nerrors");
