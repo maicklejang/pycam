@@ -33,6 +33,14 @@ branch does not work: both Pages build modes walk the entire tree and stop at
 * The bottom sheet shows the bounding box dimensions, triangle, face and entity counts,
   the drawing units, and - for DXF - the layer list with per-layer visibility.
 
+## Opening files from the file manager
+
+On the desktop, installing the app registers it for `.stl`, `.step` and `.dxf`, so a
+double click opens the viewer.  On Android a web app cannot register itself that way: share
+the file into the installed app instead, or install the small APK wrapper built from
+`android/`, which does appear in the *Open with* list.  iOS supports neither, so files have
+to be picked from inside the app.
+
 ## What is supported
 
 * **STL** - binary and ASCII.

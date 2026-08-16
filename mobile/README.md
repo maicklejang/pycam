@@ -117,6 +117,14 @@ The STEP tests check tessellated surface area, signed volume and normal orientat
 the analytic values of the generated solids, which is what catches winding, seam and
 trimming mistakes.
 
+## Opening files from the system
+
+| | |
+|---|---|
+| **Desktop Chrome / Edge** | install the app, then `.stl`/`.step`/`.dxf` open on a double click (`file_handlers` in the manifest) |
+| **Android** | share a file into the installed app (`share_target`).  For a real *Open with* entry, install the APK wrapper in [`../android`](../android) - the manifest's `file_handlers` are desktop only |
+| **iOS** | neither file handlers nor share targets exist for web apps; open files with the in-app picker |
+
 ## Notes and limits
 
 * Large files are parsed in a Web Worker; the mesh is capped at 4 M triangles and the

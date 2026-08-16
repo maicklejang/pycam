@@ -1,0 +1,61 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The web app is the single source of truth; it is copied into the APK assets at
+// build time so that nothing has to be duplicated in the repository.
+def webAppDir = file("${rootProject.projectDir}/../mobile")
+def webAppAssets = layout.buildDirectory.dir("webapp")
+
+tasks.register('syncWebApp', Sync) {
+    description = 'Copies mobile/ into the APK assets'
+    from(webAppDir) {
+        include 'index.html'
+        include 'manifest.webmanifest'
+        include 'sw.js'
+        include 'css/**'
+        include 'js/**'
+        include 'icons/**'
+    }
+    into webAppAssets
+}
+
+android {
+    namespace 'net.sourceforge.pycam.viewer'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "net.sourceforge.pycam.viewer"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs = [webAppAssets]
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name == 'preBuild' || task.name.startsWith('merge') && task.name.endsWith('Assets')) {
+        task.dependsOn 'syncWebApp'
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+}
