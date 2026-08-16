@@ -21,18 +21,43 @@ hud-karaoke/
 ├── songs/demo.lrc          데모 가사 (음원 없이 동작)
 ├── assets/make_icons.py    PWA 아이콘 생성 스크립트
 ├── sw.js, manifest.webmanifest   오프라인 설치용
+├── build_standalone.py     전체를 한 파일로 합치는 빌드
+├── standalone.html         빌드 결과 — 휴대폰에 그냥 옮겨 열면 됨
 └── tests/lrc.test.mjs      단위 테스트
 ```
 
-## 실행
+## 휴대폰에서 바로 테스트
 
-`file://`로 열면 동작하지 않습니다(ES 모듈·서비스워커 제약). 정적 서버로 여세요.
+`standalone.html` 한 파일이면 서버도 네트워크도 필요 없습니다. 메일·메신저·클라우드
+드라이브 등 아무 방법으로 휴대폰에 옮긴 뒤 파일 앱에서 열면 그대로 동작합니다.
+가사·설정·보관함까지 전부 이 한 파일 안에서 돌아갑니다.
+
+`hud-karaoke/`의 소스를 고쳤다면 다시 만들어 주세요.
+
+```sh
+cd hud-karaoke
+python3 build_standalone.py        # -> standalone.html
+```
+
+빌드 스크립트는 CSS와 모듈, 데모 가사를 한 파일로 합칩니다. 모듈 간 최상위 이름이
+겹치면 빌드를 실패시키므로, 조용히 깨진 번들이 나오지 않습니다.
+
+단, 단일 파일에는 서비스워커가 없어 **홈 화면 설치와 화면 항상 켜기(Wake Lock)는
+동작하지 않습니다**. 실제 차량에서 상시로 쓰려면 아래 방법으로 올려서 쓰세요.
+
+## 실행 (전체 기능)
+
+`index.html`을 `file://`로 열면 동작하지 않습니다(ES 모듈 제약). 정적 서버로 여세요.
 
 ```sh
 cd hud-karaoke
 python3 -m http.server 8099
 # 휴대폰에서 http://<PC의 IP>:8099 접속
 ```
+
+GitHub Pages로 올리면 HTTPS라서 홈 화면 설치·오프라인·Wake Lock까지 모두 됩니다.
+저장소 **Settings → Pages**에서 Source를 이 브랜치, 폴더를 `/ (root)`로 지정한 뒤
+`https://<사용자>.github.io/pycam/hud-karaoke/` 로 접속하면 됩니다.
 
 휴대폰에서 **홈 화면에 추가**하면 전체화면 앱으로 실행되고, 앱 껍데기 전체가
 캐시되어 터널·지하주차장처럼 신호가 없는 곳에서도 그대로 열립니다.

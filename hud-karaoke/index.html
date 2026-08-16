@@ -248,6 +248,18 @@
   </div>
 </div>
 
+<!-- In-app confirmation: native confirm() is blocked while fullscreen and in
+     sandboxed frames, which is exactly where this app runs. -->
+<div id="ask" class="safety" hidden>
+  <div class="safety-card">
+    <p id="ask-text"></p>
+    <div class="field-row">
+      <button class="chip chip-strong" id="ask-yes" type="button">확인</button>
+      <button class="chip" id="ask-no" type="button">취소</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast" hidden></div>
 <audio id="audio" preload="metadata"></audio>
 

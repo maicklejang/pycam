@@ -12,7 +12,7 @@ const STORE = "songs";
 
 let connection = null;
 
-function open() {
+function openDatabase() {
     if (connection) {
         return connection;
     }
@@ -32,7 +32,7 @@ function open() {
 }
 
 async function withStore(mode, run) {
-    const db = await open();
+    const db = await openDatabase();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction(STORE, mode);
         const request = run(transaction.objectStore(STORE));
@@ -70,7 +70,7 @@ export async function deleteSong(id) {
 }
 
 /** Rough size of the library, shown in the settings panel. */
-export async function usage() {
+export async function storageUsage() {
     if (!navigator.storage || !navigator.storage.estimate) {
         return null;
     }

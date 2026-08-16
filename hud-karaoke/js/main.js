@@ -54,6 +54,30 @@ function persist() {
     saveSettings(settings);
 }
 
+let askResolve = null;
+
+/*
+ * The browser's own confirm() is blocked while fullscreen and inside sandboxed
+ * frames — both normal for this app — so questions are asked in the page.
+ */
+function askConfirm(message) {
+    return new Promise((resolve) => {
+        settleAsk(false);
+        $("#ask-text").textContent = message;
+        $("#ask").hidden = false;
+        askResolve = resolve;
+    });
+}
+
+function settleAsk(answer) {
+    $("#ask").hidden = true;
+    const resolve = askResolve;
+    askResolve = null;
+    if (resolve) {
+        resolve(answer);
+    }
+}
+
 /* ------------------------------------------------------------- song loading */
 
 function onClockEnded() {
@@ -260,7 +284,7 @@ async function renderLibrary() {
         }
     }
 
-    const usage = await library.usage();
+    const usage = await library.storageUsage();
     $("#lib-usage").textContent = usage && usage.used
         ? `· ${(usage.used / 1048576).toFixed(0)}MB 사용`
         : "";
@@ -307,7 +331,7 @@ function songRow(song) {
     del.className = "icon-btn";
     del.textContent = "삭제";
     del.addEventListener("click", async () => {
-        if (!confirm(`"${song.title || "곡"}"을(를) 삭제할까요?`)) {
+        if (!(await askConfirm(`"${song.title || "곡"}"을(를) 삭제할까요?`))) {
             return;
         }
         await library.deleteSong(song.id);
@@ -433,9 +457,11 @@ async function tapSave() {
     state.song = saved;
     await loadSong(saved);
     closeTapSync();
-    const filename = safeFilename(meta.title);
-    downloadLrc(lrcText, filename);
-    toast(`싱크 저장 완료 — ${filename} 내려받음`, 3000);
+    const exported = await downloadLrc(lrcText, safeFilename(meta.title));
+    toast(
+        exported ? `싱크 저장 완료 — ${exported} 내려받음` : "싱크를 보관함에 저장했습니다",
+        3000
+    );
 }
 
 /*
@@ -456,7 +482,29 @@ function safeFilename(title) {
     return `lyrics-${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.lrc`;
 }
 
-function downloadLrc(text, filename) {
+/**
+ * Hand the finished .lrc to the user.  Returns the filename that was offered,
+ * or null when the page is somewhere that cannot save files — the sync itself
+ * is already in the library by then, so a failed export is not a lost result.
+ */
+async function downloadLrc(text, filename) {
+    /* When the page is embedded in a host that mediates downloads, saving goes
+     * through it instead of a link.  Its allowlist has no .lrc, so the plain
+     * text extension is appended; the contents are identical either way. */
+    if (window.claude && typeof window.claude.use === "function") {
+        const downloads = await window.claude.use("downloads");
+        if (!downloads) {
+            return null;
+        }
+        const hosted = `${filename}.txt`;
+        try {
+            await downloads.save({ filename: hosted, data: text });
+            return hosted;
+        } catch (error) {
+            return null; // declined, or saving is unavailable in this view
+        }
+    }
+
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -467,6 +515,7 @@ function downloadLrc(text, filename) {
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
+    return filename;
 }
 
 function closeTapSync() {
@@ -619,8 +668,8 @@ function bindControls() {
 
     $("#btn-demo").addEventListener("click", loadDemo);
 
-    $("#btn-reset").addEventListener("click", () => {
-        if (!confirm("화면·주행 설정을 기본값으로 되돌릴까요? 저장된 곡은 유지됩니다.")) {
+    $("#btn-reset").addEventListener("click", async () => {
+        if (!(await askConfirm("화면·주행 설정을 기본값으로 되돌릴까요? 저장된 곡은 유지됩니다."))) {
             return;
         }
         settings = { ...DEFAULTS, safetyAck: true };
@@ -636,6 +685,9 @@ function bindControls() {
         persist();
         closeTapSync();
     });
+
+    $("#ask-yes").addEventListener("click", () => settleAsk(true));
+    $("#ask-no").addEventListener("click", () => settleAsk(false));
 
     $("#safety-ok").addEventListener("click", () => {
         settings.safetyAck = true;
@@ -677,8 +729,7 @@ function bindControls() {
 
 async function loadDemo() {
     try {
-        const response = await fetch("songs/demo.lrc");
-        const lrcText = await response.text();
+        const lrcText = window.HUD_DEMO_LRC || (await (await fetch("songs/demo.lrc")).text());
         await loadSong({ title: "야간 주행", artist: "데모", lrcText, audioBlob: null });
         panel.hidden = true;
         toast("데모: 음원 없이 가사만 흐릅니다", 2600);
@@ -697,7 +748,7 @@ function boot() {
     showControls();
     renderLibrary();
 
-    if ("serviceWorker" in navigator) {
+    if ("serviceWorker" in navigator && !window.HUD_STANDALONE) {
         window.addEventListener("load", () => {
             navigator.serviceWorker.register("sw.js").catch(() => {});
         });
