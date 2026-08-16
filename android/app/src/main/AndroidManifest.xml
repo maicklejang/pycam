@@ -65,6 +65,23 @@
                 <data android:pathPattern=".*\\.DXF" />
             </intent-filter>
 
+            <!-- Last resort: Android's media type table knows nothing about STEP,
+                 so file managers hand those files over with a type nobody declares
+                 (or with none at all), and a content:// URI whose path often does
+                 not carry the file name either - neither of the filters above can
+                 match then.  Accepting any type is the only way to stay in the
+                 "Open with" list for them.  The cost is that the viewer also shows
+                 up for unrelated files; opening one simply reports that the format
+                 is not supported. -->
+            <intent-filter android:label="@string/open_with">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+
             <!-- Sharing a file into the app. -->
             <intent-filter android:label="@string/open_with">
                 <action android:name="android.intent.action.SEND" />

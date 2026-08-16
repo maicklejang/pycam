@@ -25,11 +25,21 @@ because the build is signed with Gradle's debug key rather than a store key.
   copies it into internal storage and hands it to the page as `?url=/shared/<name>`.
   Only the most recent file is kept.
 
-The intent filters list every media type Android is likely to attach to these
-files, `application/octet-stream` included - there is no registered type for STL or
-STEP, and file managers disagree about what to use.  The side effect is that the
-viewer also shows up for other unrecognised binary files; opening one there simply
-produces "unknown file format".
+## About the intent filters
+
+Android's media type table has an entry for `.stl` (`application/vnd.ms-pki.stl`) and
+for `.dxf` (`image/vnd.dxf`), but none at all for `.step` / `.stp`.  A file manager
+opening a STEP file therefore sends an intent with a type nobody declares, or with
+no type, and often with a `content://` URI whose path does not even contain the file
+name - so neither a media type filter nor a `pathPattern` filter can match it, and
+Android reports that no app can open the file.
+
+The manifest works around this in three layers: the known media types, path patterns
+for file managers that pass a real path, and finally a `*/*` filter that accepts
+anything.  The last one is what makes STEP files openable; the cost is that the
+viewer also appears for unrelated files, where it simply reports that the format is
+not supported.  The parser sniffs the content, so a file still opens correctly even
+when its name or media type is misleading.
 
 ## Building locally
 
