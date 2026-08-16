@@ -7,6 +7,8 @@ test.ngc
 
 man/pycam.1
 man/pycam.1.html
+man/pycam-photo3d.1
+man/pycam-photo3d.1.html
 docs/release-notes.md
 
 dist

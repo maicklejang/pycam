@@ -1,3 +1,4 @@
 PyOpenGL
 PyYAML
 svg.path
+numpy
