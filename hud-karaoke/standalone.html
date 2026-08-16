@@ -1,0 +1,2884 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="description" content="차량 HUD(윈드실드 반사)용 노래방 가사 표시 앱. 오프라인으로 동작합니다.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>HUD 노래방</title>
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJIVUQg64W4656Y67CpIj4KICA8cmVjdCB4PSIzMSIgeT0iMzEiIHdpZHRoPSI0NTAiIGhlaWdodD0iNDUwIiByeD0iMTEzIiBmaWxsPSIjMDAwIi8+CiAgPGcgZmlsbD0iIzAwNTA1YSI+CiAgICA8cmVjdCB4PSIxMjMiIHk9IjE1NCIgd2lkdGg9IjI2NiIgaGVpZ2h0PSIyOCIgcng9IjE0Ii8+CiAgICA8cmVjdCB4PSIxNTQiIHk9IjMxNyIgd2lkdGg9IjIwNSIgaGVpZ2h0PSIyOCIgcng9IjE0Ii8+CiAgPC9nPgogIDxyZWN0IHg9IjgyIiB5PSIyMjUiIHdpZHRoPSIzNDgiIGhlaWdodD0iNTEiIHJ4PSIyNiIgZmlsbD0iIzAwZTVmZiIvPgo8L3N2Zz4K" type="image/svg+xml">
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJIVUQg64W4656Y67CpIj4KICA8cmVjdCB4PSIzMSIgeT0iMzEiIHdpZHRoPSI0NTAiIGhlaWdodD0iNDUwIiByeD0iMTEzIiBmaWxsPSIjMDAwIi8+CiAgPGcgZmlsbD0iIzAwNTA1YSI+CiAgICA8cmVjdCB4PSIxMjMiIHk9IjE1NCIgd2lkdGg9IjI2NiIgaGVpZ2h0PSIyOCIgcng9IjE0Ii8+CiAgICA8cmVjdCB4PSIxNTQiIHk9IjMxNyIgd2lkdGg9IjIwNSIgaGVpZ2h0PSIyOCIgcng9IjE0Ii8+CiAgPC9nPgogIDxyZWN0IHg9IjgyIiB5PSIyMjUiIHdpZHRoPSIzNDgiIGhlaWdodD0iNTEiIHJ4PSIyNiIgZmlsbD0iIzAwZTVmZiIvPgo8L3N2Zz4K">
+<style>
+/*
+ * HUD karaoke.
+ *
+ * Two rules drive the whole design:
+ *   1. A windshield reflects light, it does not subtract it.  Anything that is
+ *      not the lyric has to be pure black (#000) or it shows up as haze on the
+ *      glass, so there are no panels, borders or greys inside the stage.
+ *   2. The driver reads this in peripheral vision at a glance, so there is one
+ *      large line and nothing competing with it.
+ */
+
+:root {
+    --ui-bg: #0b0d10;
+    --ui-fg: #e8edf2;
+    --ui-dim: #8b97a5;
+    --ui-line: #1e242c;
+    --ui-accent: #00d6ff;
+    --font-scale: 1;
+    --line-squeeze: 1;
+    --stage-brightness: 1;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    color-scheme: dark;
+}
+
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Every overlay here is a class with its own `display`, which outranks the
+ * user agent rule for [hidden].  Without this a "hidden" overlay keeps eating
+ * taps, which in a car means a dead screen. */
+[hidden] {
+    display: none !important;
+}
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
+body {
+    background: #000;
+    color: var(--ui-fg);
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic",
+        system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* ------------------------------------------------------------------ stage */
+
+.stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: calc(var(--safe-top) + 2vh) calc(var(--safe-right) + 3vw)
+        calc(var(--safe-bottom) + 2vh) calc(var(--safe-left) + 3vw);
+    background: #000;
+    opacity: var(--stage-brightness);
+    transform-origin: center center;
+    transition: opacity 200ms linear;
+    --hud: #00e5ff;
+    --hud-dim: rgba(0, 229, 255, 0.34);
+    --hud-faint: rgba(0, 229, 255, 0.16);
+}
+
+.stage[data-color="green"] {
+    --hud: #3dff86;
+    --hud-dim: rgba(61, 255, 134, 0.34);
+    --hud-faint: rgba(61, 255, 134, 0.16);
+}
+
+.stage[data-color="amber"] {
+    --hud: #ffb020;
+    --hud-dim: rgba(255, 176, 32, 0.36);
+    --hud-faint: rgba(255, 176, 32, 0.18);
+}
+
+.stage[data-color="white"] {
+    --hud: #ffffff;
+    --hud-dim: rgba(255, 255, 255, 0.34);
+    --hud-faint: rgba(255, 255, 255, 0.16);
+}
+
+.hud-title {
+    flex: 0 0 auto;
+    margin-bottom: 1.2vh;
+    color: var(--hud-dim);
+    font-size: clamp(0.75rem, 2.1vw, 1.15rem);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hud-lines {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.6vh;
+    min-height: 0;
+    text-align: center;
+    text-wrap: balance;
+}
+
+.line {
+    margin: 0;
+    line-height: 1.16;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    word-break: keep-all;
+}
+
+.line-prev,
+.line-next {
+    font-size: calc(clamp(0.95rem, 3.1vw, 2rem) * var(--font-scale));
+    font-weight: 700;
+    color: var(--hud-faint);
+    max-width: 90%;
+}
+
+.line-prev {
+    color: var(--hud-faint);
+    opacity: 0.7;
+}
+
+.line-current {
+    position: relative;
+    width: 100%;
+    max-width: 96%;
+}
+
+.line-base,
+.line-fill {
+    font-size: calc(clamp(2rem, 8.4vw, 5.6rem) * var(--font-scale) * var(--line-squeeze));
+}
+
+.line-base {
+    color: var(--hud-dim);
+}
+
+/* The bright copy sits exactly on top and is revealed left to right. */
+.line-fill {
+    position: absolute;
+    inset: 0;
+    color: var(--hud);
+    text-shadow: 0 0 0.28em var(--hud-dim);
+    clip-path: inset(0 calc(100% - var(--fill, 0%)) 0 0);
+    will-change: clip-path;
+}
+
+.stage.no-glow .line-fill {
+    text-shadow: none;
+}
+
+.stage.hide-next .line-next,
+.stage.hide-next .line-prev {
+    visibility: hidden;
+}
+
+/* During an instrumental break there is nothing to sing, so the line that is
+ * about to start is promoted to be readable at a glance. */
+.stage.is-break .line-next {
+    color: var(--hud-dim);
+    font-size: calc(clamp(1.3rem, 4.6vw, 3rem) * var(--font-scale));
+}
+
+.stage.is-break .line-prev {
+    opacity: 0.35;
+}
+
+.stage.is-idle .line-current {
+    min-height: 1em;
+}
+
+.hud-empty {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 12vh;
+    margin: 0;
+    color: var(--hud-faint);
+    font-size: clamp(0.85rem, 2.4vw, 1.2rem);
+    text-align: center;
+}
+
+.stage.has-song .hud-empty {
+    display: none;
+}
+
+/* interlude countdown ---------------------------------------------------- */
+
+.hud-interlude {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 9vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6em;
+    color: var(--hud-dim);
+    font-size: clamp(1rem, 3.4vw, 2rem);
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    pointer-events: none;
+}
+
+.hud-interlude.imminent {
+    color: var(--hud);
+    animation: pulse 1s ease-in-out infinite;
+}
+
+.interlude-count {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+}
+
+/* progress --------------------------------------------------------------- */
+
+.hud-progress {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.8em;
+    color: var(--hud-faint);
+    font-size: clamp(0.7rem, 1.8vw, 0.95rem);
+    font-variant-numeric: tabular-nums;
+}
+
+.stage.hide-progress .hud-progress {
+    visibility: hidden;
+}
+
+.progress-track {
+    flex: 1 1 auto;
+    height: 2px;
+    background: var(--hud-faint);
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--hud-dim);
+    transform: scaleX(0);
+    transform-origin: left center;
+}
+
+/* --------------------------------------------------------------- controls */
+
+.controls {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.6rem calc(var(--safe-right) + 0.7rem) calc(var(--safe-bottom) + 0.7rem)
+        calc(var(--safe-left) + 0.7rem);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0));
+    transition: opacity 260ms ease, transform 260ms ease;
+}
+
+.controls.is-hidden {
+    opacity: 0;
+    transform: translateY(90%);
+    pointer-events: none;
+}
+
+.transport {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.1rem;
+    min-width: 4rem;
+    height: 3.4rem;
+    padding: 0 0.6rem;
+    border: 1px solid var(--ui-line);
+    border-radius: 0.9rem;
+    background: rgba(16, 20, 26, 0.9);
+    color: var(--ui-fg);
+    font: inherit;
+    cursor: pointer;
+}
+
+.btn:active {
+    background: rgba(40, 48, 60, 0.95);
+}
+
+.btn .glyph {
+    font-size: 1.2rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.btn .cap {
+    font-size: 0.62rem;
+    color: var(--ui-dim);
+}
+
+.btn-play {
+    min-width: 5.6rem;
+    border-color: transparent;
+    background: var(--ui-accent);
+    color: #001018;
+}
+
+.btn-play .glyph {
+    font-size: 1.4rem;
+}
+
+.btn-play:active {
+    background: #4fe4ff;
+}
+
+.secondary {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.4rem;
+}
+
+.chip {
+    min-height: 2.4rem;
+    padding: 0 0.85rem;
+    border: 1px solid var(--ui-line);
+    border-radius: 1.2rem;
+    background: rgba(16, 20, 26, 0.9);
+    color: var(--ui-fg);
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+}
+
+.chip:active {
+    background: rgba(40, 48, 60, 0.95);
+}
+
+.chip[aria-pressed="true"] {
+    border-color: var(--ui-accent);
+    color: var(--ui-accent);
+}
+
+.chip-strong {
+    border-color: transparent;
+    background: var(--ui-accent);
+    color: #001018;
+    font-weight: 700;
+}
+
+/* ------------------------------------------------------------------ panel */
+
+.panel {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    background: var(--ui-bg);
+    padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+}
+
+.panel-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid var(--ui-line);
+}
+
+.tabs {
+    display: flex;
+    flex: 1 1 auto;
+    gap: 0.3rem;
+    overflow-x: auto;
+}
+
+.tab {
+    min-height: 2.5rem;
+    padding: 0 0.9rem;
+    border: 0;
+    border-radius: 0.7rem;
+    background: transparent;
+    color: var(--ui-dim);
+    font: inherit;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.tab.is-active {
+    background: rgba(0, 214, 255, 0.12);
+    color: var(--ui-accent);
+}
+
+.close {
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 0;
+    border-radius: 0.7rem;
+    background: transparent;
+    color: var(--ui-fg);
+    font-size: 1.1rem;
+    cursor: pointer;
+}
+
+.panel-body {
+    flex: 1 1 auto;
+    padding: 0.9rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.tab-page {
+    display: none;
+}
+
+.tab-page.is-active {
+    display: block;
+}
+
+.section-title {
+    margin: 1.4rem 0 0.6rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--ui-dim);
+    text-transform: uppercase;
+}
+
+.muted {
+    color: var(--ui-dim);
+    font-weight: 400;
+}
+
+.add-song {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.file-drop {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.8rem 0.9rem;
+    border: 1px dashed var(--ui-line);
+    border-radius: 0.8rem;
+    cursor: pointer;
+}
+
+.file-drop:active {
+    border-color: var(--ui-accent);
+}
+
+.file-title {
+    font-weight: 600;
+}
+
+.file-hint {
+    color: var(--ui-dim);
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.field-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.text-input {
+    flex: 1 1 8rem;
+    min-height: 2.6rem;
+    padding: 0 0.7rem;
+    border: 1px solid var(--ui-line);
+    border-radius: 0.7rem;
+    background: #0f1319;
+    color: var(--ui-fg);
+    font: inherit;
+    font-size: 0.9rem;
+}
+
+.song-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.song-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.7rem 0.2rem;
+    border-bottom: 1px solid var(--ui-line);
+}
+
+.song-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.song-name {
+    display: block;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.song-meta {
+    display: block;
+    color: var(--ui-dim);
+    font-size: 0.75rem;
+}
+
+.song-item.is-current .song-name {
+    color: var(--ui-accent);
+}
+
+.icon-btn {
+    flex: 0 0 auto;
+    min-width: 2.4rem;
+    min-height: 2.4rem;
+    border: 1px solid var(--ui-line);
+    border-radius: 0.6rem;
+    background: transparent;
+    color: var(--ui-dim);
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.empty-hint {
+    padding: 1.2rem 0;
+    color: var(--ui-dim);
+    font-size: 0.85rem;
+}
+
+/* settings rows ---------------------------------------------------------- */
+
+.setting {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--ui-line);
+}
+
+.setting-block {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+}
+
+.setting-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-weight: 600;
+}
+
+.setting-label em {
+    color: var(--ui-dim);
+    font-size: 0.75rem;
+    font-style: normal;
+    font-weight: 400;
+}
+
+.switch input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.switch span {
+    display: block;
+    position: relative;
+    width: 3.1rem;
+    height: 1.8rem;
+    border-radius: 1rem;
+    background: #262d37;
+    transition: background 160ms ease;
+    cursor: pointer;
+}
+
+.switch span::after {
+    content: "";
+    position: absolute;
+    top: 0.2rem;
+    left: 0.2rem;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 50%;
+    background: #8b97a5;
+    transition: transform 160ms ease, background 160ms ease;
+}
+
+.switch input:checked + span {
+    background: rgba(0, 214, 255, 0.35);
+}
+
+.switch input:checked + span::after {
+    background: var(--ui-accent);
+    transform: translateX(1.3rem);
+}
+
+input[type="range"] {
+    width: 100%;
+    height: 2.2rem;
+    accent-color: var(--ui-accent);
+    background: transparent;
+}
+
+.swatches {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.swatch {
+    flex: 1 1 0;
+    min-height: 2.8rem;
+    border: 2px solid var(--ui-line);
+    border-radius: 0.7rem;
+    background: #000;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.swatch[data-color="cyan"] { color: #00e5ff; }
+.swatch[data-color="green"] { color: #3dff86; }
+.swatch[data-color="amber"] { color: #ffb020; }
+.swatch[data-color="white"] { color: #fff; }
+
+.swatch.is-active {
+    border-color: currentColor;
+}
+
+.notice {
+    margin: 0.4rem 0 1rem;
+    padding: 0.8rem 0.9rem;
+    border-radius: 0.7rem;
+    background: rgba(255, 176, 32, 0.1);
+    color: #ffd79a;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.notice.muted {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--ui-dim);
+}
+
+.help-list {
+    margin: 0 0 1rem;
+    padding-left: 1.2rem;
+    font-size: 0.88rem;
+    line-height: 1.7;
+}
+
+.help-list b {
+    color: var(--ui-accent);
+}
+
+/* -------------------------------------------------------------- tap sync */
+
+.tapsync {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: calc(var(--safe-top) + 0.8rem) calc(var(--safe-right) + 0.9rem)
+        calc(var(--safe-bottom) + 0.9rem) calc(var(--safe-left) + 0.9rem);
+    background: var(--ui-bg);
+}
+
+.tapsync-head {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+}
+
+.tapsync-title {
+    flex: 1 1 auto;
+    font-weight: 700;
+}
+
+.tapsync-time {
+    font-variant-numeric: tabular-nums;
+    color: var(--ui-accent);
+    font-weight: 700;
+}
+
+.tapsync-lines {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.8rem;
+    min-height: 0;
+    text-align: center;
+}
+
+.tapsync-line {
+    max-width: 95%;
+}
+
+.tapsync-done {
+    color: var(--ui-dim);
+    font-size: 0.95rem;
+}
+
+.tapsync-now {
+    color: var(--ui-fg);
+    font-size: clamp(1.4rem, 5vw, 2.4rem);
+    font-weight: 800;
+    line-height: 1.2;
+    word-break: keep-all;
+}
+
+.tapsync-soon {
+    color: var(--ui-dim);
+    font-size: 1rem;
+}
+
+.tapsync-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.tapsync-hit {
+    flex: 1 1 auto;
+    min-height: 5rem;
+    border: 0;
+    border-radius: 1rem;
+    background: var(--ui-accent);
+    color: #001018;
+    font: inherit;
+    font-size: 1.4rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.tapsync-hit:active {
+    background: #4fe4ff;
+}
+
+/* ------------------------------------------------------------- drive lock */
+
+.lock {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(1px);
+    touch-action: none;
+}
+
+.lock-ring-wrap {
+    position: absolute;
+    width: min(38vh, 38vw);
+    height: min(38vh, 38vw);
+    transform: rotate(-90deg);
+    opacity: 0.25;
+}
+
+.lock.holding .lock-ring-wrap {
+    opacity: 0.9;
+}
+
+.lock-ring-bg,
+.lock-ring {
+    fill: none;
+    stroke-width: 3;
+}
+
+.lock-ring-bg {
+    stroke: rgba(255, 255, 255, 0.12);
+}
+
+.lock-ring {
+    stroke: var(--ui-accent);
+    stroke-dasharray: 264;
+    stroke-dashoffset: 264;
+    transition: stroke-dashoffset 180ms linear;
+}
+
+.lock-text {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.lock-text b {
+    font-size: 1.05rem;
+    letter-spacing: 0.08em;
+}
+
+/* ---------------------------------------------------------------- safety */
+
+.safety {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.2rem;
+    background: rgba(0, 0, 0, 0.85);
+}
+
+.safety-card {
+    max-width: 30rem;
+    padding: 1.4rem;
+    border: 1px solid var(--ui-line);
+    border-radius: 1rem;
+    background: var(--ui-bg);
+}
+
+.safety-card h2 {
+    margin: 0 0 0.6rem;
+    font-size: 1.1rem;
+}
+
+.safety-card p {
+    margin: 0 0 1.2rem;
+    color: var(--ui-dim);
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+/* ----------------------------------------------------------------- toast */
+
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--safe-bottom) + 8.5rem);
+    z-index: 50;
+    transform: translateX(-50%);
+    padding: 0.6rem 1rem;
+    border-radius: 0.7rem;
+    background: rgba(20, 25, 32, 0.95);
+    color: var(--ui-fg);
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+
+/* Short screens (a phone lying in landscape) get a tighter control strip. */
+@media (max-height: 460px) {
+    .btn {
+        height: 2.9rem;
+        min-width: 3.4rem;
+    }
+    .chip {
+        min-height: 2.1rem;
+        font-size: 0.76rem;
+    }
+    .hud-interlude {
+        bottom: 12vh;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hud-interlude.imminent {
+        animation: none;
+    }
+    .controls {
+        transition: none;
+    }
+}
+</style>
+</head>
+<body>
+
+<!-- The stage is the only mirrored element: what the windshield shows. -->
+<main id="stage" class="stage" data-color="cyan">
+  <div class="hud-title" hidden></div>
+
+  <div class="hud-lines">
+    <div class="line line-prev"></div>
+    <div class="line-current">
+      <div class="line line-base"></div>
+      <div class="line line-fill"></div>
+    </div>
+    <div class="line line-next"></div>
+  </div>
+
+  <div class="hud-interlude" hidden>
+    <span class="interlude-dots"></span>
+    <span class="interlude-count"></span>
+  </div>
+
+  <div class="hud-progress">
+    <span class="time-elapsed">0:00</span>
+    <div class="progress-track"><div class="progress-fill"></div></div>
+    <span class="time-remaining"></span>
+  </div>
+
+  <p class="hud-empty">곡을 불러오면 여기에 가사가 표시됩니다</p>
+</main>
+
+<!-- Controls stay unmirrored: these are touched on the phone, not on the glass. -->
+<div id="controls" class="controls">
+  <div class="transport">
+    <button class="btn" id="btn-prev" type="button" aria-label="이전 줄">
+      <span class="glyph">⟨</span><span class="cap">줄</span>
+    </button>
+    <button class="btn" id="btn-back" type="button" aria-label="5초 뒤로">
+      <span class="glyph">-5</span><span class="cap">초</span>
+    </button>
+    <button class="btn btn-play" id="btn-play" type="button" aria-label="재생 또는 일시정지">
+      <span class="glyph" data-play="▶" data-pause="❚❚">▶</span>
+    </button>
+    <button class="btn" id="btn-forward" type="button" aria-label="5초 앞으로">
+      <span class="glyph">+5</span><span class="cap">초</span>
+    </button>
+    <button class="btn" id="btn-next" type="button" aria-label="다음 줄">
+      <span class="glyph">⟩</span><span class="cap">줄</span>
+    </button>
+  </div>
+
+  <div class="secondary">
+    <button class="chip" id="btn-sync-back" type="button">가사 −0.3s</button>
+    <button class="chip" id="btn-sync-fwd" type="button">가사 +0.3s</button>
+    <button class="chip" id="btn-mirror" type="button" aria-pressed="true">반전</button>
+    <button class="chip" id="btn-lock" type="button">주행 잠금</button>
+    <button class="chip" id="btn-full" type="button">전체화면</button>
+    <button class="chip chip-strong" id="btn-panel" type="button">곡 · 설정</button>
+  </div>
+</div>
+
+<!-- Library / settings drawer -->
+<section id="panel" class="panel" hidden aria-label="곡과 설정">
+  <header class="panel-head">
+    <nav class="tabs" role="tablist">
+      <button class="tab is-active" data-tab="songs" role="tab" type="button">곡</button>
+      <button class="tab" data-tab="look" role="tab" type="button">화면</button>
+      <button class="tab" data-tab="drive" role="tab" type="button">주행</button>
+      <button class="tab" data-tab="help" role="tab" type="button">도움말</button>
+    </nav>
+    <button class="close" id="btn-panel-close" type="button" aria-label="닫기">✕</button>
+  </header>
+
+  <div class="panel-body">
+    <!-- 곡 -->
+    <div class="tab-page is-active" data-page="songs">
+      <div class="add-song">
+        <label class="file-drop">
+          <input type="file" id="in-audio" accept="audio/*" hidden>
+          <span class="file-title">음원 파일</span>
+          <span class="file-hint" id="audio-name">mp3 · m4a · wav — 선택 안 하면 외부 오디오 모드</span>
+        </label>
+        <label class="file-drop">
+          <input type="file" id="in-lyrics" accept=".lrc,.txt,text/plain" hidden>
+          <span class="file-title">가사 파일</span>
+          <span class="file-hint" id="lyrics-name">.lrc(싱크) 또는 .txt(일반)</span>
+        </label>
+        <div class="field-row">
+          <input class="text-input" id="in-title" type="text" placeholder="곡 제목" autocomplete="off">
+          <input class="text-input" id="in-artist" type="text" placeholder="아티스트" autocomplete="off">
+        </div>
+        <div class="field-row">
+          <button class="chip chip-strong" id="btn-save-song" type="button">보관함에 저장</button>
+          <button class="chip" id="btn-play-now" type="button">바로 재생</button>
+          <button class="chip" id="btn-demo" type="button">데모 곡</button>
+        </div>
+      </div>
+
+      <h3 class="section-title">보관함 <span class="muted" id="lib-usage"></span></h3>
+      <ul class="song-list" id="song-list"></ul>
+    </div>
+
+    <!-- 화면 -->
+    <div class="tab-page" data-page="look">
+      <div class="setting">
+        <span class="setting-label">좌우 반전 <em>윈드실드 반사용</em></span>
+        <label class="switch"><input type="checkbox" id="set-mirrorX"><span></span></label>
+      </div>
+      <div class="setting">
+        <span class="setting-label">상하 반전 <em>컴바이너·거치 방향용</em></span>
+        <label class="switch"><input type="checkbox" id="set-flipY"><span></span></label>
+      </div>
+      <div class="setting setting-block">
+        <span class="setting-label">글자색 <em>반사가 가장 밝은 순서</em></span>
+        <div class="swatches" id="set-color">
+          <button class="swatch" data-color="cyan" type="button" aria-label="청록">시안</button>
+          <button class="swatch" data-color="green" type="button" aria-label="초록">그린</button>
+          <button class="swatch" data-color="amber" type="button" aria-label="호박">앰버</button>
+          <button class="swatch" data-color="white" type="button" aria-label="흰색">화이트</button>
+        </div>
+      </div>
+      <div class="setting setting-block">
+        <span class="setting-label">글자 크기</span>
+        <input type="range" id="set-fontScale" min="0.7" max="1.8" step="0.05">
+      </div>
+      <div class="setting setting-block">
+        <span class="setting-label">밝기 <em>야간에는 낮추세요</em></span>
+        <input type="range" id="set-brightness" min="0.35" max="1" step="0.05">
+      </div>
+      <div class="setting">
+        <span class="setting-label">글로우 <em>반사가 흐리면 끄세요</em></span>
+        <label class="switch"><input type="checkbox" id="set-glow"><span></span></label>
+      </div>
+      <div class="setting">
+        <span class="setting-label">다음 줄 미리보기</span>
+        <label class="switch"><input type="checkbox" id="set-showNext"><span></span></label>
+      </div>
+      <div class="setting">
+        <span class="setting-label">진행 바</span>
+        <label class="switch"><input type="checkbox" id="set-showProgress"><span></span></label>
+      </div>
+    </div>
+
+    <!-- 주행 -->
+    <div class="tab-page" data-page="drive">
+      <p class="notice">
+        운전 중에는 화면을 조작하지 마세요. 곡 선택과 싱크 조정은 정차 상태에서,
+        주행 중에는 <b>주행 잠금</b>을 켜 두는 것을 전제로 만든 앱입니다.
+      </p>
+      <div class="setting">
+        <span class="setting-label">화면 항상 켜기 <em>Wake Lock</em></span>
+        <label class="switch"><input type="checkbox" id="set-keepAwake"><span></span></label>
+      </div>
+      <div class="setting">
+        <span class="setting-label">재생 시 자동 잠금</span>
+        <label class="switch"><input type="checkbox" id="set-driveLock"><span></span></label>
+      </div>
+      <div class="setting setting-block">
+        <span class="setting-label">자동 잠금까지 <em><span id="lock-delay-value"></span>초 무조작</em></span>
+        <input type="range" id="set-lockDelay" min="3" max="60" step="1">
+      </div>
+      <p class="notice muted" id="wakelock-note"></p>
+    </div>
+
+    <!-- 도움말 -->
+    <div class="tab-page" data-page="help">
+      <h3 class="section-title">HUD로 보는 법</h3>
+      <ol class="help-list">
+        <li>휴대폰을 대시보드 위, 계기판과 앞유리 사이에 <b>화면이 하늘을 보도록</b> 눕힙니다.</li>
+        <li><b>좌우 반전</b>을 켜면 앞유리에 반사된 글자가 바로 읽힙니다.</li>
+        <li>밝기를 최대로, 차량 실내등을 끄면 반사가 선명합니다. 낮에는 잘 보이지 않는 것이 정상입니다.</li>
+        <li>미끄럼 방지 패드나 HUD 반사필름을 쓰면 이중상(고스트)이 줄어듭니다.</li>
+      </ol>
+      <h3 class="section-title">가사 싱크</h3>
+      <ul class="help-list">
+        <li><b>.lrc</b> 파일이 있으면 자동으로 한 글자씩 채워집니다.</li>
+        <li>일반 <b>.txt</b> 가사는 <b>탭 싱크</b>로 직접 타이밍을 찍고 .lrc로 내보낼 수 있습니다.</li>
+        <li>음원 없이 <b>외부 오디오 모드</b>(차량 오디오·라디오)로도 쓸 수 있습니다. 후렴 시작에 맞춰 재생을 누르고 <b>가사 ±0.3s</b>로 미세 조정하세요.</li>
+      </ul>
+      <h3 class="section-title">오프라인</h3>
+      <p class="notice muted">
+        홈 화면에 추가하면 앱처럼 실행되고, 저장한 곡은 모두 기기 안에만 있습니다.
+        네트워크가 없는 터널·지하주차장에서도 그대로 동작합니다.
+      </p>
+      <button class="chip" id="btn-reset" type="button">설정 초기화</button>
+    </div>
+  </div>
+</section>
+
+<!-- Tap sync -->
+<section id="tapsync" class="tapsync" hidden aria-label="탭 싱크">
+  <header class="tapsync-head">
+    <span class="tapsync-title">탭 싱크</span>
+    <span class="tapsync-time" id="tapsync-time">0:00</span>
+    <button class="chip" id="tapsync-exit" type="button">나가기</button>
+  </header>
+  <p class="notice" id="tapsync-hint">
+    음원을 들으면서 각 줄이 <b>시작되는 순간</b> 큰 버튼을 누르세요.
+    마지막 줄까지 누르면 .lrc 파일로 저장할 수 있습니다. 정차 중에만 사용하세요.
+  </p>
+  <div class="tapsync-lines">
+    <div class="tapsync-line tapsync-done" id="tapsync-prev"></div>
+    <div class="tapsync-line tapsync-now" id="tapsync-now"></div>
+    <div class="tapsync-line tapsync-soon" id="tapsync-next"></div>
+  </div>
+  <div class="tapsync-actions">
+    <button class="chip" id="tapsync-undo" type="button">되돌리기</button>
+    <button class="tapsync-hit" id="tapsync-hit" type="button">탭</button>
+    <button class="chip chip-strong" id="tapsync-save" type="button">저장</button>
+  </div>
+</section>
+
+<!-- Drive lock -->
+<div id="lock" class="lock" hidden>
+  <svg class="lock-ring-wrap" viewBox="0 0 100 100" aria-hidden="true">
+    <circle class="lock-ring-bg" cx="50" cy="50" r="42"></circle>
+    <circle class="lock-ring" cx="50" cy="50" r="42"></circle>
+  </svg>
+  <div class="lock-text">
+    <b>주행 잠금</b>
+    <span>길게 눌러 해제</span>
+  </div>
+</div>
+
+<!-- First run safety notice -->
+<div id="safety" class="safety" hidden>
+  <div class="safety-card">
+    <h2>운전 중 조작 금지</h2>
+    <p>
+      이 앱은 정차 중 설정하고, 주행 중에는 <b>보기만</b> 하는 것을 전제로 합니다.
+      HUD 반사가 전방 시야를 가리지 않도록 위치를 조정하고, 지역 법규를 확인하세요.
+    </p>
+    <button class="chip chip-strong" id="safety-ok" type="button">확인했습니다</button>
+  </div>
+</div>
+
+<!-- In-app confirmation: native confirm() is blocked while fullscreen and in
+     sandboxed frames, which is exactly where this app runs. -->
+<div id="ask" class="safety" hidden>
+  <div class="safety-card">
+    <p id="ask-text"></p>
+    <div class="field-row">
+      <button class="chip chip-strong" id="ask-yes" type="button">확인</button>
+      <button class="chip" id="ask-no" type="button">취소</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<audio id="audio" preload="metadata"></audio>
+
+<script>
+window.HUD_STANDALONE = true;
+window.HUD_DEMO_LRC = `[ti:야간 주행]
+[ar:HUD 노래방]
+[al:데모]
+[re:HUD Karaoke]
+[by:demo lyrics written for this app]
+
+[00:00.50]앞유리에 뜨는 글자
+[00:04.20]<00:04.20>천천히 <00:05.10>따라 <00:05.90>불러 봐요
+[00:09.00]신호는 빨간불
+[00:12.40]지금은 쉬어 가는 시간
+[00:17.00]
+[00:21.00]도로 위 흰 선을 따라
+[00:24.80]밤이 길게 흘러가고
+[00:28.60]라디오는 옛날 노래
+[00:32.40]창밖은 주황 가로등
+
+[00:36.20]달리는 동안엔 화면을 보지 말고
+[00:41.00]노래만 크게 크게
+[00:45.00]손은 핸들 위에 두고
+[00:49.00]눈은 앞을 보면 돼요
+
+[00:53.00]
+[01:03.00]터널을 지나면
+[01:06.80]신호가 없어도 괜찮아
+[01:10.60]가사는 여기 남아 있으니까
+[01:15.40]끝까지 같이 가요
+
+[01:20.00]달리는 동안엔 화면을 보지 말고
+[01:24.80]노래만 크게 크게
+[01:28.80]손은 핸들 위에 두고
+[01:32.80]눈은 앞을 보면 돼요
+
+[01:37.00]안전 운전
+[01:41.00]그리고 좋은 하루
+`;
+</script>
+<script type="module">
+/* ==== js/lrc.js ==== */
+/*
+ * LRC parsing / serialisation.
+ *
+ * Supports the plain format ("[01:23.45]line") including several time tags on
+ * a single line, the enhanced word level format ("[01:23.45]<01:23.45>word"),
+ * the usual metadata tags and files that carry no timing at all.
+ */
+
+const META_LINE = /^\[(ti|ar|al|au|by|re|ve|length|offset):([^\]]*)\]$/i;
+const TIME_TAG = /\[(\d{1,3}):([0-5]?\d(?:[.:]\d{1,3})?)\]/g;
+const WORD_TAG = /<(\d{1,3}):([0-5]?\d(?:[.:]\d{1,3})?)>/g;
+
+const META_KEYS = {
+    ti: "title",
+    ar: "artist",
+    al: "album",
+    au: "author",
+    by: "editor",
+    re: "tool",
+    ve: "version",
+};
+
+/* "12.34" and "12:340" are both used in the wild for seconds and fraction. */
+function toSeconds(minutes, rest) {
+    return parseInt(minutes, 10) * 60 + parseFloat(rest.replace(":", "."));
+}
+
+function collectTags(source, pattern) {
+    const tags = [];
+    pattern.lastIndex = 0;
+    let match;
+    while ((match = pattern.exec(source)) !== null) {
+        tags.push({ time: toSeconds(match[1], match[2]), start: match.index, end: pattern.lastIndex });
+    }
+    return tags;
+}
+
+/* Split "<0:01>ready<0:02>steady" into timed word chunks. */
+function parseWords(text) {
+    const tags = collectTags(text, WORD_TAG);
+    if (tags.length === 0) {
+        return null;
+    }
+    const words = [];
+    tags.forEach((tag, index) => {
+        const until = index + 1 < tags.length ? tags[index + 1].start : text.length;
+        const chunk = text.slice(tag.end, until);
+        if (chunk !== "") {
+            words.push({ time: tag.time, text: chunk });
+        }
+    });
+    /* Text in front of the first tag belongs to that first chunk. */
+    const lead = text.slice(0, tags[0].start);
+    if (lead.trim() !== "" && words.length > 0) {
+        words[0] = { time: tags[0].time, text: lead + words[0].text };
+    }
+    return words.length > 0 ? words : null;
+}
+
+function stripTags(text) {
+    return text.replace(WORD_TAG, "").trim();
+}
+
+/**
+ * Parse an LRC (or plain lyrics) document.
+ *
+ * @param {string} source raw file content
+ * @returns {{meta: object, lines: Array, synced: boolean}}
+ */
+function parseLrc(source) {
+    const meta = { title: "", artist: "", album: "", offset: 0 };
+    const lines = [];
+    const plain = [];
+
+    for (const rawLine of String(source).replace(/\r\n?/g, "\n").split("\n")) {
+        const line = rawLine.trim();
+        if (line === "") {
+            continue;
+        }
+
+        const metaMatch = line.match(META_LINE);
+        if (metaMatch) {
+            const key = metaMatch[1].toLowerCase();
+            const value = metaMatch[2].trim();
+            if (key === "offset") {
+                /* The tag is in milliseconds and positive values play earlier. */
+                const offset = parseFloat(value);
+                meta.offset = Number.isFinite(offset) ? offset / 1000 : 0;
+            } else if (key === "length") {
+                meta.length = value;
+            } else if (META_KEYS[key]) {
+                meta[META_KEYS[key]] = value;
+            }
+            continue;
+        }
+
+        const times = collectTags(line, TIME_TAG);
+        if (times.length === 0) {
+            plain.push(line);
+            continue;
+        }
+
+        const body = line.slice(times[times.length - 1].end);
+        const words = parseWords(body);
+        const text = stripTags(body);
+        for (const tag of times) {
+            lines.push({
+                time: tag.time,
+                text,
+                words: words ? words.map((word) => ({ ...word })) : null,
+            });
+        }
+    }
+
+    if (lines.length === 0) {
+        /* No timing at all: keep the text so it can still be shown or synced. */
+        return {
+            meta,
+            synced: false,
+            lines: plain.map((text) => ({ time: null, text, words: null })),
+        };
+    }
+
+    lines.sort((a, b) => a.time - b.time);
+    return { meta, synced: true, lines: applyOffset(lines, meta.offset) };
+}
+
+function applyOffset(lines, offset) {
+    if (!offset) {
+        return lines;
+    }
+    return lines.map((line) => ({
+        ...line,
+        time: Math.max(0, line.time - offset),
+        words: line.words
+            ? line.words.map((word) => ({ ...word, time: Math.max(0, word.time - offset) }))
+            : null,
+    }));
+}
+
+/**
+ * Index of the line that is active at `time`, or -1 before the first line.
+ * Binary search, so this is cheap enough to call on every animation frame.
+ */
+function activeLineIndex(lines, time) {
+    let low = 0;
+    let high = lines.length - 1;
+    let found = -1;
+    while (low <= high) {
+        const middle = (low + high) >> 1;
+        if (lines[middle].time <= time) {
+            found = middle;
+            low = middle + 1;
+        } else {
+            high = middle - 1;
+        }
+    }
+    return found;
+}
+
+/*
+ * How long a line plausibly takes to sing.  LRC only records where lines
+ * start, so the end has to be guessed: normally it is simply where the next
+ * line begins, but that turns a ten second instrumental break into a wipe that
+ * crawls across the screen.  Capping the guess at a generous reading speed
+ * keeps ordinary lines untouched while letting real gaps be recognised as
+ * gaps.  An empty line — the usual LRC marker for a break — ends at once.
+ */
+const SECONDS_PER_CHAR = 0.45;
+const MIN_LINE_SECONDS = 2.5;
+const GAP_FACTOR = 2; // a gap beyond this multiple of the sung length is a break
+
+function lineEnd(lines, index) {
+    const line = lines[index];
+    if (!line || line.time === null) {
+        return 0;
+    }
+    const next = lines[index + 1];
+    const characters = line.text.trim().length;
+    if (characters === 0) {
+        return line.time; // empty line: the conventional break marker
+    }
+
+    const natural = Math.max(MIN_LINE_SECONDS, characters * SECONDS_PER_CHAR);
+    if (!next) {
+        return line.time + natural;
+    }
+    /* Anything up to twice the plausible length is just a slowly sung line, so
+     * the wipe keeps running to the next line exactly as a normal player does.
+     * Only clearly longer silences are shortened into a break. */
+    const gap = next.time - line.time;
+    let end = gap <= natural * GAP_FACTOR ? next.time : line.time + natural;
+    if (line.words && line.words.length > 0) {
+        /* Never end before the last word the file itself timed. */
+        end = Math.min(next.time, Math.max(end, line.words[line.words.length - 1].time + 0.4));
+    }
+    return end;
+}
+
+/**
+ * How far the karaoke wipe has advanced through the active line, 0..1.
+ * Word level timing is used when the line carries it, otherwise the wipe is
+ * spread evenly over the line's duration.
+ */
+function lineProgress(lines, index, time) {
+    const line = lines[index];
+    if (!line || line.time === null) {
+        return 0;
+    }
+    const end = lineEnd(lines, index);
+
+    if (line.words && line.words.length > 0) {
+        const total = line.text.length || 1;
+        let consumed = 0;
+        for (let i = 0; i < line.words.length; i++) {
+            const word = line.words[i];
+            const wordEnd = i + 1 < line.words.length ? line.words[i + 1].time : end;
+            if (time < word.time) {
+                break;
+            }
+            if (time >= wordEnd) {
+                consumed += word.text.length;
+                continue;
+            }
+            const span = Math.max(wordEnd - word.time, 0.001);
+            consumed += word.text.length * ((time - word.time) / span);
+            break;
+        }
+        return clamp(consumed / total, 0, 1);
+    }
+
+    const span = Math.max(end - line.time, 0.001);
+    return clamp((time - line.time) / span, 0, 1);
+}
+
+/** Seconds of silence in front of `index`, used for the interlude countdown. */
+function gapBefore(lines, index) {
+    if (index <= 0) {
+        return lines.length > 0 && lines[0].time !== null ? lines[0].time : 0;
+    }
+    const previous = lines[index - 1];
+    return lines[index].time - previous.time;
+}
+
+function clamp(value, low, high) {
+    return Math.min(high, Math.max(low, value));
+}
+
+function formatTime(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) {
+        seconds = 0;
+    }
+    const whole = Math.floor(seconds);
+    const minutes = Math.floor(whole / 60);
+    return `${minutes}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+function stamp(seconds) {
+    const safe = Math.max(0, seconds);
+    const minutes = Math.floor(safe / 60);
+    const rest = safe - minutes * 60;
+    return `[${String(minutes).padStart(2, "0")}:${rest.toFixed(2).padStart(5, "0")}]`;
+}
+
+/** Build an .lrc document, used to export the result of the tap sync mode. */
+function serialiseLrc(lines, meta = {}) {
+    const head = [];
+    if (meta.title) {
+        head.push(`[ti:${meta.title}]`);
+    }
+    if (meta.artist) {
+        head.push(`[ar:${meta.artist}]`);
+    }
+    head.push("[re:HUD Karaoke]");
+    const body = lines
+        .filter((line) => line.time !== null)
+        .map((line) => `${stamp(line.time)}${line.text}`);
+    return head.concat(body).join("\n") + "\n";
+}
+
+/* ==== js/clock.js ==== */
+/*
+ * Playback clocks.
+ *
+ * The renderer only ever asks a clock for "where are we in the song".  That
+ * lets the same lyric engine drive two very different setups: audio played by
+ * the phone itself, and audio coming from somewhere else entirely (car radio,
+ * a passenger's phone, streaming apps) where all we can do is run a stopwatch
+ * and let the driver nudge it into place.
+ */
+
+class BaseClock extends EventTarget {
+    constructor() {
+        super();
+        this.duration = 0;
+    }
+
+    get playing() {
+        return false;
+    }
+
+    announce(type) {
+        this.dispatchEvent(new Event(type));
+    }
+}
+
+class AudioClock extends BaseClock {
+    constructor(audio) {
+        super();
+        this.audio = audio;
+        this.audio.addEventListener("play", () => this.announce("statechange"));
+        this.audio.addEventListener("pause", () => this.announce("statechange"));
+        this.audio.addEventListener("ended", () => this.announce("ended"));
+        this.audio.addEventListener("loadedmetadata", () => {
+            this.duration = Number.isFinite(this.audio.duration) ? this.audio.duration : 0;
+            this.announce("durationchange");
+        });
+    }
+
+    get time() {
+        return this.audio.currentTime;
+    }
+
+    get playing() {
+        return !this.audio.paused && !this.audio.ended;
+    }
+
+    async play() {
+        await this.audio.play();
+    }
+
+    pause() {
+        this.audio.pause();
+    }
+
+    seek(seconds) {
+        this.audio.currentTime = Math.max(0, seconds);
+        this.announce("seek");
+    }
+
+    nudge(seconds) {
+        this.seek(this.time + seconds);
+    }
+
+    setRate(rate) {
+        this.audio.playbackRate = rate;
+    }
+
+    release() {
+        this.audio.pause();
+        this.audio.removeAttribute("src");
+        this.audio.load();
+    }
+}
+
+/*
+ * A stopwatch for the "audio comes from elsewhere" mode.  `origin` is the wall
+ * clock moment that maps to song position zero, so nudging the sync is just
+ * moving that origin around.
+ */
+class VirtualClock extends BaseClock {
+    constructor(duration = 0) {
+        super();
+        this.duration = duration;
+        this.origin = 0;
+        this.frozen = 0;
+        this.running = false;
+        this.rate = 1;
+    }
+
+    get time() {
+        if (!this.running) {
+            return this.frozen;
+        }
+        return this.frozen + ((performance.now() - this.origin) / 1000) * this.rate;
+    }
+
+    get playing() {
+        return this.running;
+    }
+
+    async play() {
+        if (this.running) {
+            return;
+        }
+        this.origin = performance.now();
+        this.running = true;
+        this.announce("statechange");
+    }
+
+    pause() {
+        if (!this.running) {
+            return;
+        }
+        this.frozen = this.time;
+        this.running = false;
+        this.announce("statechange");
+    }
+
+    seek(seconds) {
+        this.frozen = Math.max(0, seconds);
+        this.origin = performance.now();
+        this.announce("seek");
+    }
+
+    nudge(seconds) {
+        this.seek(this.time + seconds);
+    }
+
+    setRate(rate) {
+        this.frozen = this.time;
+        this.origin = performance.now();
+        this.rate = rate;
+    }
+
+    release() {
+        this.pause();
+    }
+}
+
+/* ==== js/settings.js ==== */
+/*
+ * User settings, persisted to localStorage.
+ *
+ * The defaults are the ones that work for the common windshield setup: phone
+ * lying face up on the dashboard, so the image has to be mirrored horizontally
+ * before it bounces off the glass.
+ */
+
+const KEY = "hud-karaoke.settings";
+
+const DEFAULTS = {
+    mirrorX: true, // windshield reflection reads back to front
+    flipY: false, // for combiner glass / phone mounted upside down
+    color: "cyan", // cyan | green | amber | white
+    fontScale: 1, // 0.7 .. 1.8
+    brightness: 1, // 0.35 .. 1, dims the whole stage at night
+    glow: true, // soft bloom, helps thin reflections carry
+    showNext: true, // preview of the upcoming line
+    showProgress: true,
+    keepAwake: true,
+    driveLock: false, // arm the lock overlay whenever playback starts
+    lockDelay: 8, // seconds of no touch before the lock engages
+    tapSyncHint: true, // first-run explanation for the tap sync screen
+    safetyAck: false, // driver acknowledged the safety notice
+};
+
+const NUMERIC = {
+    fontScale: [0.7, 1.8],
+    brightness: [0.35, 1],
+    lockDelay: [3, 60],
+};
+
+function coerce(stored) {
+    const settings = { ...DEFAULTS };
+    for (const [key, fallback] of Object.entries(DEFAULTS)) {
+        if (!(key in stored)) {
+            continue;
+        }
+        const value = stored[key];
+        if (typeof fallback === "boolean") {
+            settings[key] = Boolean(value);
+        } else if (typeof fallback === "number") {
+            const [low, high] = NUMERIC[key] || [-Infinity, Infinity];
+            settings[key] = Number.isFinite(Number(value))
+                ? Math.min(high, Math.max(low, Number(value)))
+                : fallback;
+        } else {
+            settings[key] = String(value);
+        }
+    }
+    return settings;
+}
+
+function loadSettings() {
+    try {
+        const raw = localStorage.getItem(KEY);
+        return raw ? coerce(JSON.parse(raw)) : { ...DEFAULTS };
+    } catch (error) {
+        return { ...DEFAULTS };
+    }
+}
+
+function saveSettings(settings) {
+    try {
+        localStorage.setItem(KEY, JSON.stringify(settings));
+    } catch (error) {
+        /* Private browsing or a full disk: the app still works, just forgets. */
+    }
+}
+
+/* ==== js/library.js ==== */
+/*
+ * Song library.
+ *
+ * Everything lives in IndexedDB on the device: a car is exactly the place
+ * where the network disappears, so audio blobs and lyrics are kept locally and
+ * nothing is ever uploaded anywhere.
+ */
+
+const DB_NAME = "hud-karaoke";
+const DB_VERSION = 1;
+const STORE = "songs";
+
+let connection = null;
+
+function openDatabase() {
+    if (connection) {
+        return connection;
+    }
+    connection = new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(STORE)) {
+                const store = db.createObjectStore(STORE, { keyPath: "id" });
+                store.createIndex("createdAt", "createdAt");
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+    return connection;
+}
+
+async function withStore(mode, run) {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE, mode);
+        const request = run(transaction.objectStore(STORE));
+        transaction.oncomplete = () => resolve(request ? request.result : undefined);
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
+    });
+}
+
+function newId() {
+    return `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function listSongs() {
+    const songs = (await withStore("readonly", (store) => store.getAll())) || [];
+    songs.sort((a, b) => b.createdAt - a.createdAt);
+    return songs;
+}
+
+async function getSong(id) {
+    return withStore("readonly", (store) => store.get(id));
+}
+
+async function saveSong(song) {
+    const record = { createdAt: Date.now(), ...song };
+    if (!record.id) {
+        record.id = newId();
+    }
+    await withStore("readwrite", (store) => store.put(record));
+    return record;
+}
+
+async function deleteSong(id) {
+    await withStore("readwrite", (store) => store.delete(id));
+}
+
+/** Rough size of the library, shown in the settings panel. */
+async function storageUsage() {
+    if (!navigator.storage || !navigator.storage.estimate) {
+        return null;
+    }
+    try {
+        const { usage: used, quota } = await navigator.storage.estimate();
+        return { used: used || 0, quota: quota || 0 };
+    } catch (error) {
+        return null;
+    }
+}
+
+/**
+ * Ask the browser to keep the library around instead of evicting it when the
+ * device runs low on space.  Silently ignored where unsupported.
+ */
+async function requestPersistence() {
+    if (!navigator.storage || !navigator.storage.persist) {
+        return false;
+    }
+    try {
+        if (await navigator.storage.persisted()) {
+            return true;
+        }
+        return await navigator.storage.persist();
+    } catch (error) {
+        return false;
+    }
+}
+
+/* ==== js/safety.js ==== */
+/*
+ * Everything that keeps the app usable, and sane, in a moving car:
+ * screen wake lock, fullscreen, orientation and the drive lock overlay that
+ * swallows stray taps so a bump in the road cannot skip a track.
+ */
+
+let wakeLock = null;
+let wakeWanted = false;
+
+async function acquire() {
+    if (!wakeWanted || wakeLock || !("wakeLock" in navigator)) {
+        return;
+    }
+    try {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", () => {
+            wakeLock = null;
+        });
+    } catch (error) {
+        wakeLock = null; // denied, low battery, or not permitted from this state
+    }
+}
+
+/* The lock is dropped whenever the tab is hidden, so take it again on return. */
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+        acquire();
+    }
+});
+
+function keepAwake(enabled) {
+    wakeWanted = enabled;
+    if (enabled) {
+        acquire();
+    } else if (wakeLock) {
+        wakeLock.release().catch(() => {});
+        wakeLock = null;
+    }
+}
+
+function wakeLockSupported() {
+    return "wakeLock" in navigator;
+}
+
+async function toggleFullscreen(element = document.documentElement) {
+    try {
+        if (document.fullscreenElement) {
+            await document.exitFullscreen();
+            return false;
+        }
+        await element.requestFullscreen({ navigationUI: "hide" });
+        lockLandscape();
+        return true;
+    } catch (error) {
+        return Boolean(document.fullscreenElement);
+    }
+}
+
+/* Only works while fullscreen, and only on some browsers. Failure is fine. */
+function lockLandscape() {
+    if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock("landscape").catch(() => {});
+    }
+}
+
+/**
+ * Drive lock: a full screen overlay that eats every tap.  Unlocking needs a
+ * deliberate long press, which is hard to do by accident and easy to do at a
+ * red light.
+ */
+class DriveLock extends EventTarget {
+    constructor(overlay, { holdMs = 1200 } = {}) {
+        super();
+        this.overlay = overlay;
+        this.holdMs = holdMs;
+        this.engaged = false;
+        this.timer = 0;
+        this.idleTimer = 0;
+        this.idleSeconds = 0;
+        this.autoArm = false;
+
+        const ring = overlay.querySelector(".lock-ring");
+        const start = (event) => {
+            event.preventDefault();
+            overlay.classList.add("holding");
+            if (ring) {
+                ring.style.transitionDuration = `${this.holdMs}ms`;
+                ring.style.strokeDashoffset = "0";
+            }
+            this.timer = setTimeout(() => this.disengage(), this.holdMs);
+        };
+        const stop = () => {
+            clearTimeout(this.timer);
+            overlay.classList.remove("holding");
+            if (ring) {
+                ring.style.transitionDuration = "180ms";
+                ring.style.strokeDashoffset = String(RING_LENGTH);
+            }
+        };
+
+        overlay.addEventListener("pointerdown", start);
+        overlay.addEventListener("pointerup", stop);
+        overlay.addEventListener("pointercancel", stop);
+        overlay.addEventListener("pointerleave", stop);
+    }
+
+    engage() {
+        if (this.engaged) {
+            return;
+        }
+        this.engaged = true;
+        this.overlay.hidden = false;
+        clearTimeout(this.idleTimer);
+        this.dispatchEvent(new Event("change"));
+    }
+
+    disengage() {
+        clearTimeout(this.timer);
+        if (!this.engaged) {
+            return;
+        }
+        this.engaged = false;
+        this.overlay.hidden = true;
+        this.overlay.classList.remove("holding");
+        this.dispatchEvent(new Event("change"));
+        this.noteActivity();
+    }
+
+    /** Arm auto locking after `seconds` without a touch. `0` disables it. */
+    setAuto(enabled, seconds) {
+        this.autoArm = Boolean(enabled);
+        this.idleSeconds = seconds;
+        this.noteActivity();
+    }
+
+    noteActivity() {
+        clearTimeout(this.idleTimer);
+        if (!this.autoArm || this.engaged || !this.idleSeconds) {
+            return;
+        }
+        this.idleTimer = setTimeout(() => this.engage(), this.idleSeconds * 1000);
+    }
+}
+
+const RING_LENGTH = 264; // 2 * PI * r, matches the SVG in index.html
+
+/* ==== js/hudview.js ==== */
+/*
+ * The HUD stage renderer.
+ *
+ * Deliberately spartan: on a windshield only bright pixels survive the
+ * reflection, so the design is a black field with one very large active line,
+ * a dim preview of what is coming, and a countdown for instrumental gaps.
+ */
+
+
+const INTERLUDE_THRESHOLD = 3.5; // seconds of silence worth counting down
+const MAX_DOTS = 8;
+
+class HudView {
+    constructor(root) {
+        this.root = root;
+        this.titleEl = root.querySelector(".hud-title");
+        this.prevEl = root.querySelector(".line-prev");
+        this.baseEl = root.querySelector(".line-base");
+        this.fillEl = root.querySelector(".line-fill");
+        this.nextEl = root.querySelector(".line-next");
+        this.interludeEl = root.querySelector(".hud-interlude");
+        this.dotsEl = root.querySelector(".interlude-dots");
+        this.countEl = root.querySelector(".interlude-count");
+        this.barEl = root.querySelector(".progress-fill");
+        this.elapsedEl = root.querySelector(".time-elapsed");
+        this.remainEl = root.querySelector(".time-remaining");
+
+        this.lines = [];
+        this.synced = true;
+        this.index = -2; // forces a first paint
+        this.dotCount = -1;
+    }
+
+    setSong({ lines, synced, meta }) {
+        this.lines = lines || [];
+        this.synced = synced !== false;
+        this.index = -2;
+        this.dotCount = -1;
+        const title = [meta && meta.title, meta && meta.artist].filter(Boolean).join(" — ");
+        this.titleEl.textContent = title;
+        this.titleEl.hidden = title === "";
+    }
+
+    /* Called from the animation loop with the current song position. */
+    render(time, duration) {
+        if (this.lines.length === 0) {
+            return;
+        }
+        const index = this.synced ? activeLineIndex(this.lines, time) : this.index;
+
+        if (index !== this.index) {
+            this.index = index;
+            this.paintLines(index);
+        }
+
+        if (this.synced) {
+            const fill = index >= 0 ? lineProgress(this.lines, index, time) : 0;
+            this.fillEl.style.setProperty("--fill", `${(fill * 100).toFixed(2)}%`);
+            this.paintInterlude(index, time);
+        }
+
+        this.paintProgress(time, duration);
+    }
+
+    /** Manual line stepping, used by the unsynced and tap sync modes. */
+    setIndex(index) {
+        this.index = clamp(index, 0, Math.max(0, this.lines.length - 1));
+        this.paintLines(this.index);
+        this.fillEl.style.setProperty("--fill", "0%");
+        return this.index;
+    }
+
+    paintLines(index) {
+        const current = index >= 0 ? this.lines[index] : null;
+        const previous = index > 0 ? this.lines[index - 1] : null;
+        const next = this.lines[index + 1];
+
+        const text = current ? current.text : "";
+        this.baseEl.textContent = text;
+        this.fillEl.textContent = text;
+        this.prevEl.textContent = previous ? previous.text : "";
+        this.nextEl.textContent = next ? next.text : "";
+
+        /* Long lines get a smaller step so they still fit on one screen. */
+        const length = text.length;
+        const squeeze = length > 44 ? 0.62 : length > 30 ? 0.76 : length > 20 ? 0.88 : 1;
+        this.root.style.setProperty("--line-squeeze", String(squeeze));
+
+        this.root.classList.toggle("is-idle", current === null);
+    }
+
+    paintInterlude(index, time) {
+        const next = this.lines[index + 1];
+        const until = next ? next.time - time : Infinity;
+        /* Only once the current line has been sung: otherwise the countdown
+         * competes with the line the driver is still in the middle of. */
+        const sung = index < 0 || time >= lineEnd(this.lines, index);
+        const active = next !== undefined && sung && until > INTERLUDE_THRESHOLD;
+
+        this.interludeEl.hidden = !active;
+        /* While waiting, the line you are about to sing becomes the main one. */
+        this.root.classList.toggle("is-break", active);
+        if (!active) {
+            this.dotCount = -1;
+            return;
+        }
+
+        const seconds = Math.ceil(until);
+        if (seconds !== this.dotCount) {
+            this.dotCount = seconds;
+            this.countEl.textContent = String(seconds);
+            const dots = Math.min(seconds, MAX_DOTS);
+            this.dotsEl.textContent = "•".repeat(dots);
+        }
+        this.interludeEl.classList.toggle("imminent", until <= 4);
+    }
+
+    paintProgress(time, duration) {
+        const span = duration > 0 ? duration : this.songLength();
+        const ratio = span > 0 ? clamp(time / span, 0, 1) : 0;
+        this.barEl.style.transform = `scaleX(${ratio.toFixed(4)})`;
+        this.elapsedEl.textContent = formatTime(time);
+        this.remainEl.textContent = span > 0 ? `-${formatTime(span - time)}` : "";
+    }
+
+    songLength() {
+        const last = this.lines[this.lines.length - 1];
+        return last && last.time !== null ? last.time + 5 : 0;
+    }
+}
+
+/**
+ * Apply the visual settings to the stage.  Mirroring is done here and only
+ * here: it is scoped to the stage element so the controls the driver actually
+ * touches stay the right way round on the phone itself.
+ */
+function applyLook(stage, settings) {
+    const transforms = [];
+    if (settings.mirrorX) {
+        transforms.push("scaleX(-1)");
+    }
+    if (settings.flipY) {
+        transforms.push("scaleY(-1)");
+    }
+    stage.style.transform = transforms.join(" ");
+    stage.dataset.color = settings.color;
+    stage.classList.toggle("no-glow", !settings.glow);
+    stage.classList.toggle("hide-next", !settings.showNext);
+    stage.classList.toggle("hide-progress", !settings.showProgress);
+    stage.style.setProperty("--font-scale", String(settings.fontScale));
+    stage.style.setProperty("--stage-brightness", String(settings.brightness));
+}
+
+/* ==== js/main.js ==== */
+/*
+ * HUD karaoke — application wiring.
+ */
+
+
+
+
+
+
+
+const $ = (selector) => document.querySelector(selector);
+
+const stage = $("#stage");
+const audio = $("#audio");
+const controls = $("#controls");
+const panel = $("#panel");
+const toastEl = $("#toast");
+
+const view = new HudView(stage);
+const driveLock = new DriveLock($("#lock"));
+
+/* One audio clock for the lifetime of the page: the <audio> element is shared,
+ * so re-wrapping it per song would stack duplicate listeners on it. */
+const audioClock = new AudioClock(audio);
+
+let settings = loadSettings();
+
+const state = {
+    song: null, // { id?, title, artist, lrcText, audioBlob }
+    parsed: { meta: {}, lines: [], synced: true },
+    clock: new VirtualClock(0),
+    audioUrl: null,
+    lyricOffset: 0, // positive: lyrics appear later than the audio
+    frame: 0,
+    hideTimer: 0,
+    toastTimer: 0,
+    pending: { audioFile: null, lyricsFile: null, lyricsText: "" },
+    tap: null,
+};
+
+/* ------------------------------------------------------------------ utils */
+
+function toast(message, ms = 1800) {
+    toastEl.textContent = message;
+    toastEl.hidden = false;
+    clearTimeout(state.toastTimer);
+    state.toastTimer = setTimeout(() => {
+        toastEl.hidden = true;
+    }, ms);
+}
+
+function persist() {
+    saveSettings(settings);
+}
+
+let askResolve = null;
+
+/*
+ * The browser's own confirm() is blocked while fullscreen and inside sandboxed
+ * frames — both normal for this app — so questions are asked in the page.
+ */
+function askConfirm(message) {
+    return new Promise((resolve) => {
+        settleAsk(false);
+        $("#ask-text").textContent = message;
+        $("#ask").hidden = false;
+        askResolve = resolve;
+    });
+}
+
+function settleAsk(answer) {
+    $("#ask").hidden = true;
+    const resolve = askResolve;
+    askResolve = null;
+    if (resolve) {
+        resolve(answer);
+    }
+}
+
+/* ------------------------------------------------------------- song loading */
+
+function onClockEnded() {
+    paintPlayButton();
+    driveLock.disengage();
+}
+
+/* Point `state.clock` at a new source, moving the listeners across with it. */
+function useClock(clock) {
+    if (state.clock) {
+        state.clock.removeEventListener("statechange", paintPlayButton);
+        state.clock.removeEventListener("ended", onClockEnded);
+    }
+    state.clock = clock;
+    clock.addEventListener("statechange", paintPlayButton);
+    clock.addEventListener("ended", onClockEnded);
+}
+
+function releaseSong() {
+    cancelAnimationFrame(state.frame);
+    if (state.clock) {
+        state.clock.pause();
+    }
+    if (state.audioUrl) {
+        audio.removeAttribute("src");
+        audio.load();
+        URL.revokeObjectURL(state.audioUrl);
+        state.audioUrl = null;
+    }
+}
+
+async function loadSong(song, { autoplay = false } = {}) {
+    releaseSong();
+
+    const parsed = parseLrc(song.lrcText || "");
+    parsed.meta.title = song.title || parsed.meta.title;
+    parsed.meta.artist = song.artist || parsed.meta.artist;
+
+    state.song = song;
+    state.parsed = parsed;
+    state.lyricOffset = Number(song.offset) || 0;
+    view.setSong(parsed);
+
+    if (song.audioBlob) {
+        state.audioUrl = URL.createObjectURL(song.audioBlob);
+        audio.src = state.audioUrl;
+        useClock(audioClock);
+    } else {
+        /* No audio of our own: run a stopwatch as long as the lyrics last. */
+        useClock(new VirtualClock(view.songLength()));
+    }
+    state.clock.seek(0);
+
+    stage.classList.add("has-song");
+    if (!parsed.synced) {
+        view.setIndex(0);
+        toast("싱크 없는 가사입니다 — 줄 버튼으로 넘기거나 탭 싱크를 쓰세요", 3200);
+    }
+    renderOnce();
+    paintPlayButton();
+    renderLibrary();
+
+    if (autoplay) {
+        await play();
+    }
+}
+
+async function play() {
+    try {
+        await state.clock.play();
+    } catch (error) {
+        toast("재생할 수 없습니다 — 화면을 한 번 더 눌러 주세요");
+        return;
+    }
+    if (settings.driveLock) {
+        driveLock.setAuto(true, settings.lockDelay);
+        driveLock.noteActivity();
+    }
+    loop();
+}
+
+function togglePlay() {
+    if (!state.song) {
+        openPanel("songs");
+        return;
+    }
+    if (state.clock.playing) {
+        state.clock.pause();
+        renderOnce();
+    } else {
+        play();
+    }
+}
+
+function paintPlayButton() {
+    const glyph = $("#btn-play .glyph");
+    const playing = state.clock.playing;
+    glyph.textContent = playing ? glyph.dataset.pause : glyph.dataset.play;
+    $("#btn-play").setAttribute("aria-label", playing ? "일시정지" : "재생");
+}
+
+/* --------------------------------------------------------------- rendering */
+
+function renderTime() {
+    return Math.max(0, state.clock.time - state.lyricOffset);
+}
+
+function renderOnce() {
+    view.render(renderTime(), state.clock.duration);
+}
+
+function loop() {
+    cancelAnimationFrame(state.frame);
+    const tick = () => {
+        renderOnce();
+        if (state.clock.playing) {
+            state.frame = requestAnimationFrame(tick);
+        }
+    };
+    state.frame = requestAnimationFrame(tick);
+}
+
+/* ----------------------------------------------------------------- controls */
+
+function stepLine(delta) {
+    const lines = state.parsed.lines;
+    if (lines.length === 0) {
+        return;
+    }
+    if (!state.parsed.synced) {
+        view.setIndex(view.index + delta);
+        return;
+    }
+    const target = clamp(view.index + delta, 0, lines.length - 1);
+    /* Land slightly before the line so the wipe starts from zero. */
+    state.clock.seek(lines[target].time + state.lyricOffset - 0.15);
+    renderOnce();
+}
+
+function nudgeLyrics(delta) {
+    state.lyricOffset = clamp(state.lyricOffset + delta, -30, 30);
+    const shown = state.lyricOffset >= 0 ? `+${state.lyricOffset.toFixed(1)}` : state.lyricOffset.toFixed(1);
+    toast(`가사 싱크 ${shown}s`);
+    renderOnce();
+    if (state.song && state.song.id) {
+        saveSong({ ...state.song, offset: state.lyricOffset }).catch(() => {});
+    }
+}
+
+function setMirror(enabled) {
+    settings.mirrorX = enabled;
+    $("#set-mirrorX").checked = enabled;
+    $("#btn-mirror").setAttribute("aria-pressed", String(enabled));
+    applyLook(stage, settings);
+    persist();
+}
+
+function showControls() {
+    controls.classList.remove("is-hidden");
+    clearTimeout(state.hideTimer);
+    state.hideTimer = setTimeout(() => {
+        if (state.clock.playing && panel.hidden && $("#tapsync").hidden) {
+            controls.classList.add("is-hidden");
+        }
+    }, 4500);
+}
+
+/* ------------------------------------------------------------------ panel */
+
+function openPanel(tab) {
+    panel.hidden = false;
+    if (tab) {
+        selectTab(tab);
+    }
+    renderLibrary();
+    showControls();
+}
+
+function selectTab(name) {
+    for (const tab of document.querySelectorAll(".tab")) {
+        tab.classList.toggle("is-active", tab.dataset.tab === name);
+    }
+    for (const page of document.querySelectorAll(".tab-page")) {
+        page.classList.toggle("is-active", page.dataset.page === name);
+    }
+}
+
+async function renderLibrary() {
+    const list = $("#song-list");
+    let songs = [];
+    try {
+        songs = await listSongs();
+    } catch (error) {
+        list.innerHTML = '<li class="empty-hint">보관함을 열 수 없습니다.</li>';
+        return;
+    }
+
+    if (songs.length === 0) {
+        list.innerHTML = '<li class="empty-hint">저장된 곡이 없습니다. 위에서 파일을 고르고 저장하세요.</li>';
+    } else {
+        list.innerHTML = "";
+        for (const song of songs) {
+            list.appendChild(songRow(song));
+        }
+    }
+
+    const usage = await storageUsage();
+    $("#lib-usage").textContent = usage && usage.used
+        ? `· ${(usage.used / 1048576).toFixed(0)}MB 사용`
+        : "";
+}
+
+function songRow(song) {
+    const item = document.createElement("li");
+    item.className = "song-item";
+    if (state.song && state.song.id === song.id) {
+        item.classList.add("is-current");
+    }
+
+    const main = document.createElement("button");
+    main.type = "button";
+    main.className = "song-main";
+    const parsed = parseLrc(song.lrcText || "");
+    const flags = [
+        song.audioBlob ? "음원" : "외부 오디오",
+        parsed.synced ? "싱크됨" : "싱크 없음",
+    ];
+    main.innerHTML = `<span class="song-name"></span><span class="song-meta"></span>`;
+    main.querySelector(".song-name").textContent = song.title || "제목 없음";
+    main.querySelector(".song-meta").textContent =
+        [song.artist, ...flags].filter(Boolean).join(" · ");
+    main.addEventListener("click", async () => {
+        await loadSong(song, { autoplay: false });
+        panel.hidden = true;
+        toast(`${song.title || "곡"} 불러옴`);
+    });
+
+    const syncBtn = document.createElement("button");
+    syncBtn.type = "button";
+    syncBtn.className = "icon-btn";
+    syncBtn.textContent = "탭";
+    syncBtn.title = "탭 싱크";
+    syncBtn.addEventListener("click", async () => {
+        await loadSong(song);
+        panel.hidden = true;
+        openTapSync();
+    });
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "icon-btn";
+    del.textContent = "삭제";
+    del.addEventListener("click", async () => {
+        if (!(await askConfirm(`"${song.title || "곡"}"을(를) 삭제할까요?`))) {
+            return;
+        }
+        await deleteSong(song.id);
+        renderLibrary();
+    });
+
+    item.append(main, syncBtn, del);
+    return item;
+}
+
+/* --------------------------------------------------------- adding a song */
+
+function readText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error);
+        /* LRC files in the wild are frequently UTF-8, which covers Hangul. */
+        reader.readAsText(file, "utf-8");
+    });
+}
+
+function baseName(name) {
+    return name.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").trim();
+}
+
+function draftSong() {
+    const title = $("#in-title").value.trim();
+    const artist = $("#in-artist").value.trim();
+    return {
+        title: title || (state.pending.audioFile ? baseName(state.pending.audioFile.name) : "제목 없음"),
+        artist,
+        lrcText: state.pending.lyricsText,
+        audioBlob: state.pending.audioFile || null,
+        offset: 0,
+    };
+}
+
+function resetDraft() {
+    state.pending = { audioFile: null, lyricsFile: null, lyricsText: "" };
+    $("#in-audio").value = "";
+    $("#in-lyrics").value = "";
+    $("#in-title").value = "";
+    $("#in-artist").value = "";
+    $("#audio-name").textContent = "mp3 · m4a · wav — 선택 안 하면 외부 오디오 모드";
+    $("#lyrics-name").textContent = ".lrc(싱크) 또는 .txt(일반)";
+}
+
+/* -------------------------------------------------------------- tap sync */
+
+function openTapSync() {
+    const lines = state.parsed.lines;
+    if (lines.length === 0) {
+        toast("먼저 가사를 불러오세요");
+        return;
+    }
+    state.tap = { index: 0, times: new Array(lines.length).fill(null) };
+    $("#tapsync").hidden = false;
+    $("#tapsync-hint").hidden = !settings.tapSyncHint;
+    paintTapSync();
+    if (!state.clock.playing) {
+        play();
+    }
+    tapSyncClock();
+}
+
+function tapSyncClock() {
+    if ($("#tapsync").hidden) {
+        return;
+    }
+    $("#tapsync-time").textContent = formatTime(state.clock.time);
+    requestAnimationFrame(tapSyncClock);
+}
+
+function paintTapSync() {
+    const { lines } = state.parsed;
+    const { index } = state.tap;
+    $("#tapsync-prev").textContent = index > 0 ? lines[index - 1].text : "";
+    $("#tapsync-now").textContent = index < lines.length ? lines[index].text : "— 끝 —";
+    $("#tapsync-next").textContent = index + 1 < lines.length ? lines[index + 1].text : "";
+    $("#tapsync-hit").disabled = index >= lines.length;
+}
+
+function tapMark() {
+    const { lines } = state.parsed;
+    const tap = state.tap;
+    if (!tap || tap.index >= lines.length) {
+        return;
+    }
+    tap.times[tap.index] = state.clock.time;
+    tap.index += 1;
+    paintTapSync();
+    if (navigator.vibrate) {
+        navigator.vibrate(12);
+    }
+}
+
+function tapUndo() {
+    const tap = state.tap;
+    if (!tap || tap.index === 0) {
+        return;
+    }
+    tap.index -= 1;
+    tap.times[tap.index] = null;
+    paintTapSync();
+}
+
+async function tapSave() {
+    const tap = state.tap;
+    if (!tap || tap.times.every((time) => time === null)) {
+        toast("아직 찍은 줄이 없습니다");
+        return;
+    }
+    const lines = state.parsed.lines.map((line, index) => ({
+        text: line.text,
+        time: tap.times[index],
+    }));
+    const meta = state.parsed.meta;
+    const lrcText = serialiseLrc(lines, meta);
+
+    const song = { ...(state.song || {}), lrcText, offset: 0 };
+    const saved = await saveSong(song);
+    state.song = saved;
+    await loadSong(saved);
+    closeTapSync();
+    const exported = await downloadLrc(lrcText, safeFilename(meta.title));
+    toast(
+        exported ? `싱크 저장 완료 — ${exported} 내려받음` : "싱크를 보관함에 저장했습니다",
+        3000
+    );
+}
+
+/*
+ * Browsers quietly drop a download name that is not plain ASCII and save the
+ * file as "download" with no extension, so a Hangul title falls back to a
+ * timestamp.  The real title is inside the file as a [ti:] tag either way.
+ */
+function safeFilename(title) {
+    const ascii = String(title || "")
+        .replace(/[^\w.\- ]+/g, "")
+        .trim()
+        .replace(/\s+/g, "_");
+    if (ascii.length >= 2) {
+        return `${ascii}.lrc`;
+    }
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, "0");
+    return `lyrics-${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.lrc`;
+}
+
+/**
+ * Hand the finished .lrc to the user.  Returns the filename that was offered,
+ * or null when the page is somewhere that cannot save files — the sync itself
+ * is already in the library by then, so a failed export is not a lost result.
+ */
+async function downloadLrc(text, filename) {
+    /* When the page is embedded in a host that mediates downloads, saving goes
+     * through it instead of a link.  Its allowlist has no .lrc, so the plain
+     * text extension is appended; the contents are identical either way. */
+    if (window.claude && typeof window.claude.use === "function") {
+        const downloads = await window.claude.use("downloads");
+        if (!downloads) {
+            return null;
+        }
+        const hosted = `${filename}.txt`;
+        try {
+            await downloads.save({ filename: hosted, data: text });
+            return hosted;
+        } catch (error) {
+            return null; // declined, or saving is unavailable in this view
+        }
+    }
+
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    /* Some browsers ignore the download name on a detached anchor. */
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    return filename;
+}
+
+function closeTapSync() {
+    $("#tapsync").hidden = true;
+    state.tap = null;
+    state.clock.pause();
+    renderOnce();
+}
+
+/* ------------------------------------------------------------------ setup */
+
+function bindSettingControls() {
+    const toggles = ["mirrorX", "flipY", "glow", "showNext", "showProgress", "keepAwake", "driveLock"];
+    for (const key of toggles) {
+        const input = $(`#set-${key}`);
+        input.checked = Boolean(settings[key]);
+        input.addEventListener("change", () => {
+            settings[key] = input.checked;
+            if (key === "keepAwake") {
+                keepAwake(input.checked);
+            }
+            if (key === "driveLock") {
+                driveLock.setAuto(input.checked && state.clock.playing, settings.lockDelay);
+            }
+            if (key === "mirrorX") {
+                $("#btn-mirror").setAttribute("aria-pressed", String(input.checked));
+            }
+            applyLook(stage, settings);
+            persist();
+        });
+    }
+
+    for (const key of ["fontScale", "brightness", "lockDelay"]) {
+        const input = $(`#set-${key}`);
+        input.value = String(settings[key]);
+        input.addEventListener("input", () => {
+            settings[key] = Number(input.value);
+            if (key === "lockDelay") {
+                $("#lock-delay-value").textContent = String(settings.lockDelay);
+                driveLock.setAuto(settings.driveLock && state.clock.playing, settings.lockDelay);
+            }
+            applyLook(stage, settings);
+            persist();
+        });
+    }
+    $("#lock-delay-value").textContent = String(settings.lockDelay);
+
+    for (const swatch of document.querySelectorAll(".swatch")) {
+        swatch.addEventListener("click", () => {
+            settings.color = swatch.dataset.color;
+            paintSwatches();
+            applyLook(stage, settings);
+            persist();
+        });
+    }
+    paintSwatches();
+
+    $("#wakelock-note").textContent = wakeLockSupported()
+        ? "이 브라우저는 화면 항상 켜기를 지원합니다."
+        : "이 브라우저는 Wake Lock을 지원하지 않습니다. 기기 설정에서 화면 꺼짐 시간을 늘려 주세요.";
+}
+
+function paintSwatches() {
+    for (const swatch of document.querySelectorAll(".swatch")) {
+        swatch.classList.toggle("is-active", swatch.dataset.color === settings.color);
+    }
+}
+
+function bindControls() {
+    $("#btn-play").addEventListener("click", togglePlay);
+    $("#btn-prev").addEventListener("click", () => stepLine(-1));
+    $("#btn-next").addEventListener("click", () => stepLine(1));
+    $("#btn-back").addEventListener("click", () => {
+        state.clock.nudge(-5);
+        renderOnce();
+    });
+    $("#btn-forward").addEventListener("click", () => {
+        state.clock.nudge(5);
+        renderOnce();
+    });
+    $("#btn-sync-back").addEventListener("click", () => nudgeLyrics(-0.3));
+    $("#btn-sync-fwd").addEventListener("click", () => nudgeLyrics(0.3));
+    $("#btn-mirror").addEventListener("click", () => setMirror(!settings.mirrorX));
+    $("#btn-lock").addEventListener("click", () => driveLock.engage());
+    $("#btn-full").addEventListener("click", () => toggleFullscreen());
+    $("#btn-panel").addEventListener("click", () => openPanel("songs"));
+    $("#btn-panel-close").addEventListener("click", () => {
+        panel.hidden = true;
+    });
+
+    for (const tab of document.querySelectorAll(".tab")) {
+        tab.addEventListener("click", () => selectTab(tab.dataset.tab));
+    }
+
+    $("#in-audio").addEventListener("change", (event) => {
+        const file = event.target.files[0];
+        state.pending.audioFile = file || null;
+        $("#audio-name").textContent = file ? file.name : "선택 안 함 — 외부 오디오 모드";
+        if (file && !$("#in-title").value) {
+            $("#in-title").value = baseName(file.name);
+        }
+    });
+
+    $("#in-lyrics").addEventListener("change", async (event) => {
+        const file = event.target.files[0];
+        if (!file) {
+            return;
+        }
+        try {
+            state.pending.lyricsText = await readText(file);
+        } catch (error) {
+            toast("가사 파일을 읽지 못했습니다");
+            return;
+        }
+        const parsed = parseLrc(state.pending.lyricsText);
+        $("#lyrics-name").textContent =
+            `${file.name} · ${parsed.lines.length}줄 · ${parsed.synced ? "싱크됨" : "싱크 없음"}`;
+        if (!$("#in-title").value && parsed.meta.title) {
+            $("#in-title").value = parsed.meta.title;
+        }
+        if (!$("#in-artist").value && parsed.meta.artist) {
+            $("#in-artist").value = parsed.meta.artist;
+        }
+    });
+
+    $("#btn-play-now").addEventListener("click", async () => {
+        if (!state.pending.lyricsText) {
+            toast("가사 파일을 먼저 고르세요");
+            return;
+        }
+        await loadSong(draftSong());
+        panel.hidden = true;
+    });
+
+    $("#btn-save-song").addEventListener("click", async () => {
+        if (!state.pending.lyricsText) {
+            toast("가사 파일을 먼저 고르세요");
+            return;
+        }
+        try {
+            const saved = await saveSong(draftSong());
+            await requestPersistence();
+            resetDraft();
+            await renderLibrary();
+            toast(`"${saved.title}" 저장됨`);
+        } catch (error) {
+            toast("저장 실패 — 저장 공간을 확인하세요");
+        }
+    });
+
+    $("#btn-demo").addEventListener("click", loadDemo);
+
+    $("#btn-reset").addEventListener("click", async () => {
+        if (!(await askConfirm("화면·주행 설정을 기본값으로 되돌릴까요? 저장된 곡은 유지됩니다."))) {
+            return;
+        }
+        settings = { ...DEFAULTS, safetyAck: true };
+        persist();
+        location.reload();
+    });
+
+    $("#tapsync-hit").addEventListener("click", tapMark);
+    $("#tapsync-undo").addEventListener("click", tapUndo);
+    $("#tapsync-save").addEventListener("click", tapSave);
+    $("#tapsync-exit").addEventListener("click", () => {
+        settings.tapSyncHint = false;
+        persist();
+        closeTapSync();
+    });
+
+    $("#ask-yes").addEventListener("click", () => settleAsk(true));
+    $("#ask-no").addEventListener("click", () => settleAsk(false));
+
+    $("#safety-ok").addEventListener("click", () => {
+        settings.safetyAck = true;
+        persist();
+        $("#safety").hidden = true;
+    });
+
+    document.addEventListener("pointerdown", () => {
+        showControls();
+        driveLock.noteActivity();
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.target.matches("input, textarea")) {
+            return;
+        }
+        const actions = {
+            " ": togglePlay,
+            ArrowLeft: () => state.clock.nudge(-5),
+            ArrowRight: () => state.clock.nudge(5),
+            ArrowUp: () => stepLine(-1),
+            ArrowDown: () => stepLine(1),
+            m: () => setMirror(!settings.mirrorX),
+            f: () => toggleFullscreen(),
+            l: () => driveLock.engage(),
+        };
+        const action = actions[event.key] || actions[event.key.toLowerCase()];
+        if (action) {
+            event.preventDefault();
+            action();
+            renderOnce();
+        }
+    });
+
+    driveLock.addEventListener("change", () => {
+        controls.classList.toggle("is-hidden", driveLock.engaged);
+    });
+}
+
+async function loadDemo() {
+    try {
+        const lrcText = window.HUD_DEMO_LRC || (await (await fetch("songs/demo.lrc")).text());
+        await loadSong({ title: "야간 주행", artist: "데모", lrcText, audioBlob: null });
+        panel.hidden = true;
+        toast("데모: 음원 없이 가사만 흐릅니다", 2600);
+    } catch (error) {
+        toast("데모를 불러오지 못했습니다");
+    }
+}
+
+function boot() {
+    applyLook(stage, settings);
+    bindSettingControls();
+    bindControls();
+    setMirror(settings.mirrorX);
+    keepAwake(settings.keepAwake);
+    $("#safety").hidden = settings.safetyAck;
+    showControls();
+    renderLibrary();
+
+    if ("serviceWorker" in navigator && !window.HUD_STANDALONE) {
+        window.addEventListener("load", () => {
+            navigator.serviceWorker.register("sw.js").catch(() => {});
+        });
+    }
+}
+
+boot();
+</script>
+</body>
+</html>

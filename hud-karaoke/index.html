@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="description" content="차량 HUD(윈드실드 반사)용 노래방 가사 표시 앱. 오프라인으로 동작합니다.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>HUD 노래방</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon.svg">
+<link rel="stylesheet" href="css/hud.css">
+</head>
+<body>
+
+<!-- The stage is the only mirrored element: what the windshield shows. -->
+<main id="stage" class="stage" data-color="cyan">
+  <div class="hud-title" hidden></div>
+
+  <div class="hud-lines">
+    <div class="line line-prev"></div>
+    <div class="line-current">
+      <div class="line line-base"></div>
+      <div class="line line-fill"></div>
+    </div>
+    <div class="line line-next"></div>
+  </div>
+
+  <div class="hud-interlude" hidden>
+    <span class="interlude-dots"></span>
+    <span class="interlude-count"></span>
+  </div>
+
+  <div class="hud-progress">
+    <span class="time-elapsed">0:00</span>
+    <div class="progress-track"><div class="progress-fill"></div></div>
+    <span class="time-remaining"></span>
+  </div>
+
+  <p class="hud-empty">곡을 불러오면 여기에 가사가 표시됩니다</p>
+</main>
+
+<!-- Controls stay unmirrored: these are touched on the phone, not on the glass. -->
+<div id="controls" class="controls">
+  <div class="transport">
+    <button class="btn" id="btn-prev" type="button" aria-label="이전 줄">
+      <span class="glyph">⟨</span><span class="cap">줄</span>
+    </button>
+    <button class="btn" id="btn-back" type="button" aria-label="5초 뒤로">
+      <span class="glyph">-5</span><span class="cap">초</span>
+    </button>
+    <button class="btn btn-play" id="btn-play" type="button" aria-label="재생 또는 일시정지">
+      <span class="glyph" data-play="▶" data-pause="❚❚">▶</span>
+    </button>
+    <button class="btn" id="btn-forward" type="button" aria-label="5초 앞으로">
+      <span class="glyph">+5</span><span class="cap">초</span>
+    </button>
+    <button class="btn" id="btn-next" type="button" aria-label="다음 줄">
+      <span class="glyph">⟩</span><span class="cap">줄</span>
+    </button>
+  </div>
+
+  <div class="secondary">
+    <button class="chip" id="btn-sync-back" type="button">가사 −0.3s</button>
+    <button class="chip" id="btn-sync-fwd" type="button">가사 +0.3s</button>
+    <button class="chip" id="btn-mirror" type="button" aria-pressed="true">반전</button>
+    <button class="chip" id="btn-lock" type="button">주행 잠금</button>
+    <button class="chip" id="btn-full" type="button">전체화면</button>
+    <button class="chip chip-strong" id="btn-panel" type="button">곡 · 설정</button>
+  </div>
+</div>
+
+<!-- Library / settings drawer -->
+<section id="panel" class="panel" hidden aria-label="곡과 설정">
+  <header class="panel-head">
+    <nav class="tabs" role="tablist">
+      <button class="tab is-active" data-tab="songs" role="tab" type="button">곡</button>
+      <button class="tab" data-tab="look" role="tab" type="button">화면</button>
+      <button class="tab" data-tab="drive" role="tab" type="button">주행</button>
+      <button class="tab" data-tab="help" role="tab" type="button">도움말</button>
+    </nav>
+    <button class="close" id="btn-panel-close" type="button" aria-label="닫기">✕</button>
+  </header>
+
+  <div class="panel-body">
+    <!-- 곡 -->
+    <div class="tab-page is-active" data-page="songs">
+      <div class="add-song">
+        <label class="file-drop">
+          <input type="file" id="in-audio" accept="audio/*" hidden>
+          <span class="file-title">음원 파일</span>
+          <span class="file-hint" id="audio-name">mp3 · m4a · wav — 선택 안 하면 외부 오디오 모드</span>
+        </label>
+        <label class="file-drop">
+          <input type="file" id="in-lyrics" accept=".lrc,.txt,text/plain" hidden>
+          <span class="file-title">가사 파일</span>
+          <span class="file-hint" id="lyrics-name">.lrc(싱크) 또는 .txt(일반)</span>
+        </label>
+        <div class="field-row">
+          <input class="text-input" id="in-title" type="text" placeholder="곡 제목" autocomplete="off">
+          <input class="text-input" id="in-artist" type="text" placeholder="아티스트" autocomplete="off">
+        </div>
+        <div class="field-row">
+          <button class="chip chip-strong" id="btn-save-song" type="button">보관함에 저장</button>
+          <button class="chip" id="btn-play-now" type="button">바로 재생</button>
+          <button class="chip" id="btn-demo" type="button">데모 곡</button>
+        </div>
+      </div>
+
+      <h3 class="section-title">보관함 <span class="muted" id="lib-usage"></span></h3>
+      <ul class="song-list" id="song-list"></ul>
+    </div>
+
+    <!-- 화면 -->
+    <div class="tab-page" data-page="look">
+      <div class="setting">
+        <span class="setting-label">좌우 반전 <em>윈드실드 반사용</em></span>
+        <label class="switch"><input type="checkbox" id="set-mirrorX"><span></span></label>
+      </div>
+      <div class="setting">
+        <span class="setting-label">상하 반전 <em>컴바이너·거치 방향용</em></span>
+        <label class="switch"><input type="checkbox" id="set-flipY"><span></span></label>
+      </div>
+      <div class="setting setting-block">
+        <span class="setting-label">글자색 <em>반사가 가장 밝은 순서</em></span>
+        <div class="swatches" id="set-color">
+          <button class="swatch" data-color="cyan" type="button" aria-label="청록">시안</button>
+          <button class="swatch" data-color="green" type="button" aria-label="초록">그린</button>
+          <button class="swatch" data-color="amber" type="button" aria-label="호박">앰버</button>
+          <button class="swatch" data-color="white" type="button" aria-label="흰색">화이트</button>
+        </div>
+      </div>
+      <div class="setting setting-block">
+        <span class="setting-label">글자 크기</span>
+        <input type="range" id="set-fontScale" min="0.7" max="1.8" step="0.05">
+      </div>
+      <div class="setting setting-block">
+        <span class="setting-label">밝기 <em>야간에는 낮추세요</em></span>
+        <input type="range" id="set-brightness" min="0.35" max="1" step="0.05">
+      </div>
+      <div class="setting">
+        <span class="setting-label">글로우 <em>반사가 흐리면 끄세요</em></span>
+        <label class="switch"><input type="checkbox" id="set-glow"><span></span></label>
+      </div>
+      <div class="setting">
+        <span class="setting-label">다음 줄 미리보기</span>
+        <label class="switch"><input type="checkbox" id="set-showNext"><span></span></label>
+      </div>
+      <div class="setting">
+        <span class="setting-label">진행 바</span>
+        <label class="switch"><input type="checkbox" id="set-showProgress"><span></span></label>
+      </div>
+    </div>
+
+    <!-- 주행 -->
+    <div class="tab-page" data-page="drive">
+      <p class="notice">
+        운전 중에는 화면을 조작하지 마세요. 곡 선택과 싱크 조정은 정차 상태에서,
+        주행 중에는 <b>주행 잠금</b>을 켜 두는 것을 전제로 만든 앱입니다.
+      </p>
+      <div class="setting">
+        <span class="setting-label">화면 항상 켜기 <em>Wake Lock</em></span>
+        <label class="switch"><input type="checkbox" id="set-keepAwake"><span></span></label>
+      </div>
+      <div class="setting">
+        <span class="setting-label">재생 시 자동 잠금</span>
+        <label class="switch"><input type="checkbox" id="set-driveLock"><span></span></label>
+      </div>
+      <div class="setting setting-block">
+        <span class="setting-label">자동 잠금까지 <em><span id="lock-delay-value"></span>초 무조작</em></span>
+        <input type="range" id="set-lockDelay" min="3" max="60" step="1">
+      </div>
+      <p class="notice muted" id="wakelock-note"></p>
+    </div>
+
+    <!-- 도움말 -->
+    <div class="tab-page" data-page="help">
+      <h3 class="section-title">HUD로 보는 법</h3>
+      <ol class="help-list">
+        <li>휴대폰을 대시보드 위, 계기판과 앞유리 사이에 <b>화면이 하늘을 보도록</b> 눕힙니다.</li>
+        <li><b>좌우 반전</b>을 켜면 앞유리에 반사된 글자가 바로 읽힙니다.</li>
+        <li>밝기를 최대로, 차량 실내등을 끄면 반사가 선명합니다. 낮에는 잘 보이지 않는 것이 정상입니다.</li>
+        <li>미끄럼 방지 패드나 HUD 반사필름을 쓰면 이중상(고스트)이 줄어듭니다.</li>
+      </ol>
+      <h3 class="section-title">가사 싱크</h3>
+      <ul class="help-list">
+        <li><b>.lrc</b> 파일이 있으면 자동으로 한 글자씩 채워집니다.</li>
+        <li>일반 <b>.txt</b> 가사는 <b>탭 싱크</b>로 직접 타이밍을 찍고 .lrc로 내보낼 수 있습니다.</li>
+        <li>음원 없이 <b>외부 오디오 모드</b>(차량 오디오·라디오)로도 쓸 수 있습니다. 후렴 시작에 맞춰 재생을 누르고 <b>가사 ±0.3s</b>로 미세 조정하세요.</li>
+      </ul>
+      <h3 class="section-title">오프라인</h3>
+      <p class="notice muted">
+        홈 화면에 추가하면 앱처럼 실행되고, 저장한 곡은 모두 기기 안에만 있습니다.
+        네트워크가 없는 터널·지하주차장에서도 그대로 동작합니다.
+      </p>
+      <button class="chip" id="btn-reset" type="button">설정 초기화</button>
+    </div>
+  </div>
+</section>
+
+<!-- Tap sync -->
+<section id="tapsync" class="tapsync" hidden aria-label="탭 싱크">
+  <header class="tapsync-head">
+    <span class="tapsync-title">탭 싱크</span>
+    <span class="tapsync-time" id="tapsync-time">0:00</span>
+    <button class="chip" id="tapsync-exit" type="button">나가기</button>
+  </header>
+  <p class="notice" id="tapsync-hint">
+    음원을 들으면서 각 줄이 <b>시작되는 순간</b> 큰 버튼을 누르세요.
+    마지막 줄까지 누르면 .lrc 파일로 저장할 수 있습니다. 정차 중에만 사용하세요.
+  </p>
+  <div class="tapsync-lines">
+    <div class="tapsync-line tapsync-done" id="tapsync-prev"></div>
+    <div class="tapsync-line tapsync-now" id="tapsync-now"></div>
+    <div class="tapsync-line tapsync-soon" id="tapsync-next"></div>
+  </div>
+  <div class="tapsync-actions">
+    <button class="chip" id="tapsync-undo" type="button">되돌리기</button>
+    <button class="tapsync-hit" id="tapsync-hit" type="button">탭</button>
+    <button class="chip chip-strong" id="tapsync-save" type="button">저장</button>
+  </div>
+</section>
+
+<!-- Drive lock -->
+<div id="lock" class="lock" hidden>
+  <svg class="lock-ring-wrap" viewBox="0 0 100 100" aria-hidden="true">
+    <circle class="lock-ring-bg" cx="50" cy="50" r="42"></circle>
+    <circle class="lock-ring" cx="50" cy="50" r="42"></circle>
+  </svg>
+  <div class="lock-text">
+    <b>주행 잠금</b>
+    <span>길게 눌러 해제</span>
+  </div>
+</div>
+
+<!-- First run safety notice -->
+<div id="safety" class="safety" hidden>
+  <div class="safety-card">
+    <h2>운전 중 조작 금지</h2>
+    <p>
+      이 앱은 정차 중 설정하고, 주행 중에는 <b>보기만</b> 하는 것을 전제로 합니다.
+      HUD 반사가 전방 시야를 가리지 않도록 위치를 조정하고, 지역 법규를 확인하세요.
+    </p>
+    <button class="chip chip-strong" id="safety-ok" type="button">확인했습니다</button>
+  </div>
+</div>
+
+<!-- In-app confirmation: native confirm() is blocked while fullscreen and in
+     sandboxed frames, which is exactly where this app runs. -->
+<div id="ask" class="safety" hidden>
+  <div class="safety-card">
+    <p id="ask-text"></p>
+    <div class="field-row">
+      <button class="chip chip-strong" id="ask-yes" type="button">확인</button>
+      <button class="chip" id="ask-no" type="button">취소</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<audio id="audio" preload="metadata"></audio>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
