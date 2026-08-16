@@ -437,6 +437,21 @@ class TestSession(pycam.Test.PycamTestCase):
         self.assertEqual(os.path.basename(loaded.background_path), "background.png")
         self.assertEqual(len(loaded.get_cameras(320, 240)), 2)
 
+    def test_photos_are_rotated_according_to_their_exif_header(self):
+        """ phones store the orientation in the EXIF header instead of rotating the pixels """
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("pillow is needed for writing a photo with an EXIF header")
+        from pycam.Photogrammetry.images import load_image
+        image = Image.fromarray(np.zeros((40, 80, 3), dtype=np.uint8))
+        exif = image.getexif()
+        # 6: the camera was held upright, the image has to be turned by 90 degrees
+        exif[274] = 6
+        filename = os.path.join(self.directory, "portrait.jpg")
+        image.save(filename, exif=exif)
+        self.assertEqual(load_image(filename).shape, (80, 40, 3))
+
     def test_import_of_a_photo_directory(self):
         if not available_backends():
             self.skipTest("no image backend (opencv or pillow) is available")

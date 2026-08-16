@@ -30,7 +30,12 @@ import numpy as np
 
 from pycam.errors import LoadFileError, MissingDependencyError
 
-IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp")
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp", ".heic", ".heif")
+# the format of recent iPhones - it needs an additional decoder
+HEIF_EXTENSIONS = (".heic", ".heif")
+_HEIF_HINT = ("HEIF/HEIC photos need the additional module 'pillow-heif' (pip install "
+              "pillow-heif). Alternatively let your phone store photos as JPEG ('most "
+              "compatible' in the camera settings of iOS).")
 
 _MISSING_BACKEND_HINT = ("no image library is available - please install either "
                          "'python3-opencv' (recommended) or 'python3-pil'")
@@ -62,11 +67,27 @@ def available_backends():
     return tuple(backends)
 
 
+def _register_heif():
+    """ teach Pillow to open the HEIF/HEIC photos of recent phones (if possible) """
+    try:
+        import pillow_heif
+    except ImportError:
+        return False
+    pillow_heif.register_heif_opener()
+    return True
+
+
 def load_image(filename):
     """ load an image file and return it as an RGB array of bytes (shape: height x width x 3) """
     filename = os.path.expanduser(str(filename))
     if not os.path.isfile(filename):
         raise LoadFileError("image file does not exist: {}".format(filename))
+    is_heif = filename.lower().endswith(HEIF_EXTENSIONS)
+    if is_heif:
+        # OpenCV cannot decode this format - Pillow can, as soon as it knows the decoder
+        if not _register_heif() or _get_pillow() is None:
+            raise MissingDependencyError("cannot read '{}': {}".format(filename, _HEIF_HINT))
+        return _load_via_pillow(filename)
     cv2 = _get_opencv()
     if cv2 is not None:
         # "imread" does not handle non-ASCII filenames on all platforms - read the bytes here
@@ -76,12 +97,22 @@ def load_image(filename):
         if image is None:
             raise LoadFileError("failed to decode image: {}".format(filename))
         return np.ascontiguousarray(image[:, :, ::-1])
-    pillow = _get_pillow()
-    if pillow is not None:
-        with pillow.open(filename) as handle:
-            return np.asarray(handle.convert("RGB"), dtype=np.uint8)
+    if _get_pillow() is not None:
+        return _load_via_pillow(filename)
     raise MissingDependencyError("{} (while loading {})"
                                  .format(_MISSING_BACKEND_HINT, filename))
+
+
+def _load_via_pillow(filename):
+    from PIL import ImageOps
+    pillow = _get_pillow()
+    try:
+        with pillow.open(filename) as handle:
+            # phone cameras store the orientation in the EXIF header instead of rotating the
+            # pixels - OpenCV applies it while decoding, Pillow has to be asked for it
+            return np.asarray(ImageOps.exif_transpose(handle).convert("RGB"), dtype=np.uint8)
+    except OSError as exc:
+        raise LoadFileError("failed to decode image ({}): {}".format(filename, exc))
 
 
 def save_image(filename, image):

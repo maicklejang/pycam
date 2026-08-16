@@ -70,6 +70,21 @@ pycam-photo3d prepare ~/scans/pawn --distance 300 --height 150 \
 This writes a `session.json` file into the directory.  It can be edited with any text editor -
 for example to correct a single angle of a photo.
 
+A few details are worth knowing when the photos come from a phone:
+
+* Do not turn the phone between the photos - all photos of a session must have the same size.
+  The rotation stored in the EXIF header is applied while loading, so portrait photos work
+  just as well as landscape ones.
+* `--fov` refers to the *horizontal* field of view of the photo as you see it.  A phone held
+  upright therefore needs the smaller of the two angles (roughly 50 degrees for the main
+  camera of a typical phone, rather than the 65 degrees of a landscape photo).
+* Turn off any "portrait mode", automatic HDR bracketing and beauty filters.  Lock the
+  exposure and the focus if your camera application offers it.
+* iPhones store photos as HEIC by default.  Either switch the format to "most compatible"
+  (JPEG) in the camera settings, or install the additional decoder `pillow-heif`.
+* Photos are shrunk to `--max-image-size` (900 pixels) before they are analyzed, so there is
+  no need to reduce the resolution of the photos yourself.
+
 
 ## Building the model
 
@@ -148,4 +163,5 @@ model = result.mesh.to_pycam_model()
 | `python3-numpy` | everything (required) |
 | `python3-opencv` | camera access, calibration, faster image processing |
 | `python3-pil` | reading and writing image files (alternative to OpenCV) |
+| `pillow-heif` | reading the HEIC photos of recent iPhones |
 | `python3-tk` | the graphical application |
