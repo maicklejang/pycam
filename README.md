@@ -14,6 +14,16 @@ Graphical Interface: `pycam/run_gui.py`
 Scripted Toolpath Processing: `pycam/run_cli.py FLOW_SPECIFICATION_FILE`
 
 
+## Document viewer
+
+The repository also ships `docviewer`, a small dependency-free viewer for PDF,
+Word, Excel, PowerPoint, image and text files:
+
+    python3 -m docviewer ~/documents
+
+See [docviewer/README.md](docviewer/README.md) for details.
+
+
 ## Resources
 
 See the [documentation](http://pycam.sourceforge.net/introduction/) for a short introduction.
