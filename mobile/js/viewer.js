@@ -186,9 +186,11 @@
         "varying vec3 vNormal;",
         "varying vec3 vWorldNormal;",
         "varying vec3 vViewPos;",
+        "varying vec3 vWorldPos;",
         "void main() {",
         "  vNormal = uNormalMatrix * aNormal;",
         "  vWorldNormal = aNormal;",
+        "  vWorldPos = aPosition;",
         "  vViewPos = (uModelView * vec4(aPosition, 1.0)).xyz;",
         "  gl_Position = uMVP * vec4(aPosition, 1.0);",
         "}"
@@ -201,7 +203,13 @@
         "varying vec3 vViewPos;",
         "uniform vec3 uColor;",
         "uniform vec3 uBackColor;",
+        "uniform vec4 uClipPlane;",
+        "uniform float uClipEnabled;",
+        "varying vec3 vWorldPos;",
         "void main() {",
+        "  if (uClipEnabled > 0.5 && dot(vWorldPos, uClipPlane.xyz) > uClipPlane.w) {",
+        "    discard;",
+        "  }",
         "  vec3 n = normalize(vNormal);",
         "  vec3 wn = normalize(vWorldNormal);",
         "  if (!gl_FrontFacing) { n = -n; wn = -wn; }",
@@ -225,7 +233,9 @@
         "uniform mat4 uMVP;",
         "uniform vec2 uOffset;",
         "uniform float uDepthNudge;",
+        "varying vec3 vWorldPos;",
         "void main() {",
+        "  vWorldPos = aPosition;",
         "  vec4 pos = uMVP * vec4(aPosition, 1.0);",
         "  pos.xy += uOffset * pos.w;",
         "  pos.z -= uDepthNudge * pos.w;",
@@ -237,8 +247,65 @@
         "precision mediump float;",
         "uniform vec3 uColor;",
         "uniform float uAlpha;",
-        "void main() { gl_FragColor = vec4(uColor, uAlpha); }"
+        "uniform vec4 uClipPlane;",
+        "uniform float uClipEnabled;",
+        "varying vec3 vWorldPos;",
+        "void main() {",
+        "  if (uClipEnabled > 0.5 && dot(vWorldPos, uClipPlane.xyz) > uClipPlane.w) {",
+        "    discard;",
+        "  }",
+        "  gl_FragColor = vec4(uColor, uAlpha);",
+        "}"
     ].join("\n");
+
+    /* Full screen gradient, the way a CAD viewport usually looks. */
+    var BACKGROUND_VS = [
+        "attribute vec2 aPosition;",
+        "varying float vHeight;",
+        "void main() {",
+        "  vHeight = aPosition.y * 0.5 + 0.5;",
+        "  gl_Position = vec4(aPosition, 0.0, 1.0);",
+        "}"
+    ].join("\n");
+
+    var BACKGROUND_FS = [
+        "precision mediump float;",
+        "varying float vHeight;",
+        "uniform vec3 uTop;",
+        "uniform vec3 uBottom;",
+        "void main() { gl_FragColor = vec4(mix(uBottom, uTop, vHeight), 1.0); }"
+    ].join("\n");
+
+    /* Palettes.  The light one is the default: a dark viewport hides the very
+     * shading it is supposed to show, especially on a phone in daylight. */
+    var THEMES = {
+        light: {
+            backgroundTop: [0.95, 0.96, 0.97],
+            backgroundBottom: [0.72, 0.75, 0.79],
+            material: [0.60, 0.65, 0.72],
+            backface: [0.55, 0.40, 0.38],
+            cut: [0.44, 0.49, 0.57],
+            grid: [0.58, 0.61, 0.66],
+            outline: [0.10, 0.12, 0.16],
+            wireframe: [0.15, 0.35, 0.60],
+            bbox: [0.85, 0.45, 0.10],
+            measure: [0.85, 0.42, 0.05],
+            axes: [[0.80, 0.20, 0.20], [0.20, 0.55, 0.20], [0.20, 0.35, 0.75]]
+        },
+        dark: {
+            backgroundTop: [0.086, 0.098, 0.13],
+            backgroundBottom: [0.043, 0.051, 0.07],
+            material: [0.62, 0.68, 0.78],
+            backface: [0.42, 0.30, 0.34],
+            cut: [0.50, 0.56, 0.66],
+            grid: [0.16, 0.19, 0.25],
+            outline: [0.05, 0.07, 0.11],
+            wireframe: [0.45, 0.72, 0.95],
+            bbox: [0.95, 0.62, 0.25],
+            measure: [1.0, 0.78, 0.25],
+            axes: [[0.90, 0.35, 0.35], [0.42, 0.82, 0.45], [0.40, 0.60, 0.95]]
+        }
+    };
 
     function compile(gl, type, source) {
         var shader = gl.createShader(type);
@@ -274,7 +341,7 @@
 
     function Viewer(canvas) {
         this.canvas = canvas;
-        var options = {alpha: false, antialias: true, depth: true,
+        var options = {alpha: false, antialias: true, depth: true, stencil: true,
                        preserveDrawingBuffer: true, powerPreference: "high-performance"};
         var gl = canvas.getContext("webgl", options) || canvas.getContext("experimental-webgl", options);
         if (!gl) {
@@ -283,13 +350,16 @@
         this.gl = gl;
         this.meshProgram = program(gl, MESH_VS, MESH_FS, ["aPosition", "aNormal"]);
         this.lineProgram = program(gl, LINE_VS, LINE_FS, ["aPosition"]);
+        this.backgroundProgram = program(gl, BACKGROUND_VS, BACKGROUND_FS, ["aPosition"]);
+        this.backgroundQuad = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.backgroundQuad);
+        gl.bufferData(gl.ARRAY_BUFFER,
+                      new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
 
         this.model = null;
         this.buffers = {mesh: null, edges: [], grid: null, axes: null, bbox: null,
                         wireframe: null};
-        this.background = [0.055, 0.066, 0.094];
-        this.materialColor = [0.62, 0.68, 0.78];
-        this.backfaceColor = [0.42, 0.30, 0.34];
+        this.theme = THEMES.light;
 
         this.options = {
             projection: "perspective",
@@ -297,8 +367,12 @@
             showGrid: true,
             showAxes: true,
             showBBox: false,
-            lockRotation: false
+            lockRotation: false,
+            theme: "light"
         };
+
+        /* Section plane: `position` is 0..1 across the model's extent on `axis`. */
+        this.section = {active: false, axis: 2, position: 0.5, flip: false};
 
         this.camera = {target: [0, 0, 0], distance: 10, yaw: -Math.PI / 4,
                        pitch: 0.55, fov: Math.PI / 4};
@@ -343,8 +417,110 @@
         }
     };
 
+    Viewer.prototype.setTheme = function (name) {
+        this.theme = THEMES[name] || THEMES.light;
+        this.options.theme = THEMES[name] ? name : "light";
+        this.invalidate();
+    };
+
+    /* A line colour meant for the opposite background would vanish; pull it back. */
+    Viewer.prototype.themedLineColor = function (color) {
+        var luminance = color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114;
+        if (this.options.theme === "light" && luminance > 0.72) {
+            return [color[0] * 0.22, color[1] * 0.22, color[2] * 0.26];
+        }
+        if (this.options.theme === "dark" && luminance < 0.18) {
+            return [0.35 + color[0] * 0.4, 0.38 + color[1] * 0.4, 0.45 + color[2] * 0.4];
+        }
+        return color;
+    };
+
+    Viewer.prototype.setSection = function (changes) {
+        var section = this.section;
+        if (changes.active !== undefined) {
+            section.active = !!changes.active;
+        }
+        if (changes.axis !== undefined) {
+            section.axis = changes.axis;
+        }
+        if (changes.position !== undefined) {
+            section.position = Math.max(0, Math.min(1, changes.position));
+        }
+        if (changes.flip !== undefined) {
+            section.flip = !!changes.flip;
+        }
+        this.buildSectionCap();
+        this.invalidate();
+        return this.sectionState();
+    };
+
+    Viewer.prototype.sectionState = function () {
+        var bbox = this.model && this.model.bbox;
+        var state = {active: this.section.active, axis: this.section.axis,
+                     position: this.section.position, flip: this.section.flip,
+                     value: null};
+        if (P.isFiniteBBox(bbox)) {
+            var axis = this.section.axis;
+            state.value = bbox.min[axis]
+                + (bbox.max[axis] - bbox.min[axis]) * this.section.position;
+        }
+        return state;
+    };
+
+    /* Plane as {normal, offset}: everything with dot(p, normal) > offset is cut. */
+    Viewer.prototype.sectionPlane = function () {
+        var state = this.sectionState();
+        if (state.value === null) {
+            return null;
+        }
+        var normal = [0, 0, 0];
+        normal[this.section.axis] = this.section.flip ? -1 : 1;
+        return {normal: normal, offset: this.section.flip ? -state.value : state.value};
+    };
+
+    /* The cut surface: a quad on the plane, big enough to cover the model, drawn
+     * only where the stencil pass says we are inside the solid. */
+    Viewer.prototype.buildSectionCap = function () {
+        if (this.buffers.cap) {
+            this.gl.deleteBuffer(this.buffers.cap.position);
+            this.gl.deleteBuffer(this.buffers.cap.normal);
+            this.buffers.cap = null;
+        }
+        var plane = this.sectionPlane();
+        if (!plane || !this.section.active || !this.buffers.mesh) {
+            return;
+        }
+        var bbox = this.model.bbox;
+        var axis = this.section.axis;
+        var u = (axis + 1) % 3;
+        var v = (axis + 2) % 3;
+        var pad = this.modelRadius * 0.05;
+        var value = this.sectionState().value;
+        var corners = [[bbox.min[u] - pad, bbox.min[v] - pad],
+                       [bbox.max[u] + pad, bbox.min[v] - pad],
+                       [bbox.max[u] + pad, bbox.max[v] + pad],
+                       [bbox.min[u] - pad, bbox.max[v] + pad]];
+        var order = [0, 1, 2, 0, 2, 3];
+        var positions = [];
+        var normals = [];
+        for (var i = 0; i < order.length; i++) {
+            var point = [0, 0, 0];
+            point[axis] = value;
+            point[u] = corners[order[i]][0];
+            point[v] = corners[order[i]][1];
+            positions.push(point[0], point[1], point[2]);
+            normals.push(plane.normal[0], plane.normal[1], plane.normal[2]);
+        }
+        this.buffers.cap = {position: this.makeBuffer(new Float32Array(positions)),
+                            normal: this.makeBuffer(new Float32Array(normals)),
+                            count: positions.length / 3};
+    };
+
     Viewer.prototype.setOption = function (key, value) {
         this.options[key] = value;
+        if (key === "theme") {
+            this.setTheme(value);
+        }
         if (key === "showBBox" && value && this.model) {
             this.buildBBox();
         }
@@ -381,9 +557,10 @@
         drop(this.buffers.bbox);
         drop(this.buffers.wireframe);
         drop(this.buffers.measure);
+        drop(this.buffers.cap);
         this.buffers.edges.forEach(drop);
         this.buffers = {mesh: null, edges: [], grid: null, axes: null, bbox: null,
-                        wireframe: null, measure: null};
+                        wireframe: null, measure: null, cap: null};
         this.rawMesh = null;
         this.measure.points = [];
     };
@@ -413,6 +590,8 @@
             ? "shaded-edges" : "shaded";
         this.options.lockRotation = result.kind === "2d";
         this.options.projection = result.kind === "2d" ? "orthographic" : "perspective";
+        this.section.active = false;
+        this.section.position = 0.5;
         this.buildGrid();
         if (this.options.showBBox) {
             this.buildBBox();
@@ -982,12 +1161,15 @@
         var width = this.canvas.width;
         var height = this.canvas.height;
         gl.viewport(0, 0, width, height);
-        gl.clearColor(this.background[0], this.background[1], this.background[2], 1);
+        gl.clearColor(this.theme.backgroundBottom[0], this.theme.backgroundBottom[1],
+                      this.theme.backgroundBottom[2], 1);
+        gl.clearStencil(0);
         gl.enable(gl.DEPTH_TEST);
         gl.depthFunc(gl.LEQUAL);
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+        this.drawBackground();
         if (!this.model) {
             return;
         }
@@ -1007,8 +1189,10 @@
         M4.multiply(this.mvp, this.proj, this.view);
         M4.normalMatrix(this.normalMatrix, this.view);
 
+        this.clip = this.section.active ? this.sectionPlane() : null;
+
         if (this.options.showGrid && this.buffers.grid) {
-            this.drawLines(this.buffers.grid, [0.16, 0.19, 0.25], 1, 1, 0);
+            this.drawLines(this.buffers.grid, this.theme.grid, 1, 1, 0, false);
         }
         if (this.options.showAxes && this.buffers.axes) {
             this.drawAxes();
@@ -1017,9 +1201,12 @@
         var showMesh = this.buffers.mesh && this.options.shading !== "wireframe";
         if (showMesh) {
             this.drawMesh();
+            if (this.clip && this.buffers.cap) {
+                this.drawSectionCap();
+            }
         }
         if (this.options.shading === "wireframe" && this.buffers.wireframe) {
-            this.drawLines(this.buffers.wireframe, [0.45, 0.72, 0.95], 0.55, 2, 0.0);
+            this.drawLines(this.buffers.wireframe, this.theme.wireframe, 0.55, 2, 0.0);
         }
         var drawEdges = this.buffers.edges.length
             && (this.options.shading !== "shaded" || !this.buffers.mesh);
@@ -1029,49 +1216,106 @@
                 if (!layer.visible) {
                     continue;
                 }
-                var color = layer.color;
-                if (this.buffers.mesh) {
-                    color = [0.05, 0.07, 0.11];   // dark outlines on top of a shaded solid
-                }
+                var color = this.buffers.mesh
+                    ? this.theme.outline        // plain outlines on top of a shaded solid
+                    : this.themedLineColor(layer.color);
                 this.drawLines(layer, color, 1, layer.count > 400000 ? 1 : 2, 0.0008);
             }
         }
         if (this.options.showBBox && this.buffers.bbox) {
-            this.drawLines(this.buffers.bbox, [0.95, 0.62, 0.25], 0.75, 1, 0);
+            this.drawLines(this.buffers.bbox, this.theme.bbox, 0.75, 1, 0, false);
         }
         if (this.buffers.measure) {
             // always on top, so a marker never disappears inside the model
             gl.disable(gl.DEPTH_TEST);
-            this.drawLines(this.buffers.measure, [1.0, 0.78, 0.25], 1, 2, 0);
+            this.drawLines(this.buffers.measure, this.theme.measure, 1, 2, 0, false);
             gl.enable(gl.DEPTH_TEST);
         }
     };
 
-    Viewer.prototype.drawMesh = function () {
+    Viewer.prototype.drawBackground = function () {
+        var gl = this.gl;
+        var prog = this.backgroundProgram;
+        gl.useProgram(prog.handle);
+        gl.uniform3fv(prog.uniforms.uTop, this.theme.backgroundTop);
+        gl.uniform3fv(prog.uniforms.uBottom, this.theme.backgroundBottom);
+        gl.disable(gl.DEPTH_TEST);
+        gl.depthMask(false);
+        gl.enableVertexAttribArray(0);
+        gl.disableVertexAttribArray(1);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.backgroundQuad);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        gl.depthMask(true);
+        gl.enable(gl.DEPTH_TEST);
+    };
+
+    /* Counts how many faces lie between the eye and the plane: an odd count means
+     * the plane cuts through solid material, and that is where the cap is drawn. */
+    Viewer.prototype.drawSectionCap = function () {
+        var gl = this.gl;
+        gl.enable(gl.STENCIL_TEST);
+        gl.clear(gl.STENCIL_BUFFER_BIT);
+        gl.colorMask(false, false, false, false);
+        gl.depthMask(false);
+        gl.disable(gl.DEPTH_TEST);
+        gl.stencilFunc(gl.ALWAYS, 0, 0xff);
+        gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
+        gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
+        this.drawMesh();
+
+        gl.colorMask(true, true, true, true);
+        gl.depthMask(true);
+        gl.enable(gl.DEPTH_TEST);
+        gl.stencilFunc(gl.NOTEQUAL, 0, 0xff);
+        gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+        this.drawMesh(this.buffers.cap, this.theme.cut, true);
+        gl.disable(gl.STENCIL_TEST);
+    };
+
+    Viewer.prototype.drawMesh = function (buffer, color, ignoreClip) {
         var gl = this.gl;
         var prog = this.meshProgram;
+        buffer = buffer || this.buffers.mesh;
         gl.useProgram(prog.handle);
         gl.uniformMatrix4fv(prog.uniforms.uMVP, false, this.mvp);
         gl.uniformMatrix4fv(prog.uniforms.uModelView, false, this.view);
         gl.uniformMatrix3fv(prog.uniforms.uNormalMatrix, false, this.normalMatrix);
-        gl.uniform3fv(prog.uniforms.uColor, this.materialColor);
-        gl.uniform3fv(prog.uniforms.uBackColor, this.backfaceColor);
+        gl.uniform3fv(prog.uniforms.uColor, color || this.theme.material);
+        gl.uniform3fv(prog.uniforms.uBackColor, color || this.theme.backface);
+        this.applyClip(prog, !ignoreClip);
         gl.enableVertexAttribArray(0);
         gl.enableVertexAttribArray(1);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.mesh.position);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer.position);
         gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.mesh.normal);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer.normal);
         gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
-        gl.drawArrays(gl.TRIANGLES, 0, this.buffers.mesh.count);
+        gl.drawArrays(gl.TRIANGLES, 0, buffer.count);
         gl.disableVertexAttribArray(1);
+    };
+
+    Viewer.prototype.applyClip = function (prog, enabled) {
+        var gl = this.gl;
+        var plane = enabled ? this.clip : null;
+        if (!prog.uniforms.uClipPlane) {
+            return;
+        }
+        if (plane) {
+            gl.uniform4f(prog.uniforms.uClipPlane, plane.normal[0], plane.normal[1],
+                         plane.normal[2], plane.offset);
+            gl.uniform1f(prog.uniforms.uClipEnabled, 1);
+        } else {
+            gl.uniform1f(prog.uniforms.uClipEnabled, 0);
+        }
     };
 
     /* Line width is capped at 1px on most GPUs, so thicker strokes are faked by
      * redrawing the geometry with sub-pixel offsets. */
-    Viewer.prototype.drawLines = function (buffer, color, alpha, passes, depthNudge) {
+    Viewer.prototype.drawLines = function (buffer, color, alpha, passes, depthNudge, clip) {
         var gl = this.gl;
         var prog = this.lineProgram;
         gl.useProgram(prog.handle);
+        this.applyClip(prog, clip !== false);
         gl.uniformMatrix4fv(prog.uniforms.uMVP, false, this.mvp);
         gl.uniform3fv(prog.uniforms.uColor, color);
         gl.uniform1f(prog.uniforms.uAlpha, alpha);
@@ -1095,8 +1339,9 @@
     Viewer.prototype.drawAxes = function () {
         var gl = this.gl;
         var prog = this.lineProgram;
-        var colors = [[0.90, 0.35, 0.35], [0.42, 0.82, 0.45], [0.40, 0.60, 0.95]];
+        var colors = this.theme.axes;
         gl.useProgram(prog.handle);
+        this.applyClip(prog, false);
         gl.uniformMatrix4fv(prog.uniforms.uMVP, false, this.mvp);
         gl.uniform1f(prog.uniforms.uAlpha, 0.55);
         gl.uniform1f(prog.uniforms.uDepthNudge, 0);

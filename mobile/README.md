@@ -40,7 +40,8 @@ repository root is still there to keep Jekyll out of the way.)
 | **View** | orbit / pan / pinch zoom, isometric + 6 standard views, perspective or orthographic |
 | **Inspect** | bounding box dimensions, triangle / face / entity counts, units, DXF layers with visibility toggles |
 | **Measure** | tap two points for the distance and its X/Y/Z components, snapping to corners and edges |
-| **Display** | solid, solid + edges, wireframe, grid, axes, bounding box |
+| **Section** | slice the model on X, Y or Z with a slider; the cut is capped, so it reads as a real section |
+| **Display** | solid, solid + edges, wireframe, grid, axes, bounding box, light or dark viewport |
 | **Share** | export the current view as a PNG (Web Share or download) |
 | **Remember** | the last 5 files (up to 32 MB each) are kept in IndexedDB for one-tap reopening |
 
@@ -66,6 +67,30 @@ Taps snap, in this order:
 
 An edge only wins over a face when it is not hidden behind it, so a tap picks what is
 actually visible.  The picked points are drawn as markers that stay on top of the model.
+
+## Section view
+
+The section button cuts the model with a plane: pick the axis, drag the slider to move the
+plane through the model, and use the flip button to keep the other half.  The value next to
+the slider is the plane's position in model coordinates.
+
+The cut is **capped**: without a cap a clipped solid looks hollow, because you end up staring
+at the inside of its far wall.  The cap is produced with the usual stencil trick - draw the
+clipped mesh counting front and back faces per pixel, then fill a quad on the plane wherever
+that count says the plane passes through solid material.  It needs a closed mesh to be exact;
+an open shell (a surface model, or a STEP file with faces the tessellator had to skip) may cap
+partially.
+
+Clipping runs in the fragment shader, so it costs nothing to drag the slider around, and the
+grid, axes and measurement markers deliberately stay unclipped.
+
+## Background
+
+The viewport is a light grey gradient by default, which is what CAD viewers use and what
+survives being looked at outdoors.  The **View** tab switches between the light and the dark
+palette - model, edges, grid, axes and the whole UI follow along, and the choice is
+remembered.  DXF layer colours are pulled back from white when the background is light, so a
+drawing on layer colour 7 stays visible either way.
 
 ## Format support
 

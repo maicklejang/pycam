@@ -16,7 +16,9 @@
      "panel", "panel-handle", "stats", "warnings", "layer-list", "sel-shading", "sel-projection",
      "chk-grid", "chk-axes", "chk-bbox", "chk-lock", "progress", "progress-bar", "progress-label",
      "toast", "file-input", "recent", "recent-list", "tab-info", "tab-layers", "tab-display",
-     "btn-measure", "measure-bar", "measure-main", "measure-detail", "measure-clear"
+     "btn-measure", "measure-bar", "measure-main", "measure-detail", "measure-clear",
+     "btn-section", "section-bar", "section-slider", "section-flip", "section-value",
+     "sel-theme"
     ].forEach(function (id) {
         el[id] = doc.getElementById(id);
     });
@@ -194,6 +196,7 @@
         }
 
         stopMeasuring();
+        stopSection();
         buildLayerList(result);
         el["sel-shading"].value = viewer.options.shading;
         el["btn-shading"].classList.toggle("on", viewer.options.shading !== "shaded");
@@ -329,6 +332,94 @@
     el["measure-clear"].addEventListener("click", function () {
         viewer.clearMeasure();
     });
+
+
+    /* --- section view and theme ------------------------------------------------ */
+
+    var AXIS_NAMES = ["X", "Y", "Z"];
+
+    function showSectionState(state) {
+        doc.querySelectorAll(".section-axes button").forEach(function (button) {
+            button.classList.toggle("on",
+                Number(button.getAttribute("data-axis")) === state.axis);
+        });
+        el["section-value"].textContent = state.value === null ? "–"
+            : AXIS_NAMES[state.axis] + " " + measureNumber(state.value) + modelUnit();
+        el["section-flip"].classList.toggle("on", state.flip);
+    }
+
+    function stopSection() {
+        if (!viewer || !viewer.section.active) {
+            return;
+        }
+        viewer.setSection({active: false});
+        el["section-bar"].hidden = true;
+        el["btn-section"].classList.remove("on");
+    }
+
+    el["btn-section"].addEventListener("click", function () {
+        var next = !viewer.section.active;
+        var state = viewer.setSection({active: next});
+        el["btn-section"].classList.toggle("on", next);
+        el["section-bar"].hidden = !next;
+        if (next) {
+            el["section-slider"].value = String(Math.round(state.position * 1000));
+            showSectionState(state);
+            el.panel.classList.add("collapsed");
+        }
+    });
+
+    el["section-slider"].addEventListener("input", function () {
+        showSectionState(viewer.setSection({
+            position: Number(el["section-slider"].value) / 1000
+        }));
+    });
+
+    doc.querySelectorAll(".section-axes button").forEach(function (button) {
+        button.addEventListener("click", function () {
+            showSectionState(viewer.setSection({
+                axis: Number(button.getAttribute("data-axis"))
+            }));
+        });
+    });
+
+    el["section-flip"].addEventListener("click", function () {
+        showSectionState(viewer.setSection({flip: !viewer.section.flip}));
+    });
+
+    var THEME_KEY = "pycam-viewer-theme";
+
+    function applyTheme(name) {
+        name = name === "dark" ? "dark" : "light";
+        doc.body.classList.toggle("theme-light", name === "light");
+        var meta = doc.querySelector('meta[name="theme-color"]');
+        if (meta) {
+            meta.setAttribute("content", name === "light" ? "#e9ebef" : "#0e1117");
+        }
+        if (viewer) {
+            viewer.setTheme(name);
+        }
+        el["sel-theme"].value = name;
+        try {
+            root.localStorage.setItem(THEME_KEY, name);
+        } catch (err) {
+            // private mode: the choice simply does not persist
+        }
+    }
+
+    el["sel-theme"].addEventListener("change", function () {
+        applyTheme(el["sel-theme"].value);
+    });
+
+    (function () {
+        var stored = null;
+        try {
+            stored = root.localStorage.getItem(THEME_KEY);
+        } catch (err) {
+            stored = null;
+        }
+        applyTheme(stored || "light");
+    })();
 
     /* --- file intake --------------------------------------------------------- */
 
