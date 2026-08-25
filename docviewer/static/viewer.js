@@ -21,7 +21,8 @@ var LEGACY = ["doc", "xls", "ppt", "rtf", "odt", "ods", "odp", "hwp"];
 var HOST_CHUNK = 512 * 1024;
 
 var state = { files: [], current: null, payload: null, zoom: 1, sheet: 0, slide: 0,
-              rotation: 0, fit: true, notes: false, urls: [], loadingHost: false };
+              rotation: 0, fit: true, notes: false, urls: [], loadingHost: false,
+              page: 0, pdfOpen: false };
 var dom = {};
 
 document.addEventListener("DOMContentLoaded", function () {
@@ -30,7 +31,6 @@ document.addEventListener("DOMContentLoaded", function () {
   });
   restoreTheme();
   installTags();
-  connectAndroidHost();
   dom.pick.addEventListener("click", function () { dom.input.click(); });
   dom.input.addEventListener("change", function () {
     addFiles(Array.prototype.slice.call(dom.input.files));
@@ -53,7 +53,11 @@ document.addEventListener("DOMContentLoaded", function () {
       addFiles(Array.prototype.slice.call(event.dataTransfer.files));
     }
   });
-  showList();
+  // the app may have handed us a document before the page finished loading; only
+  // when it has not do we show the empty home screen
+  if (!connectAndroidHost()) {
+    showList();
+  }
 });
 
 function installTags() {
@@ -90,7 +94,7 @@ function installTags() {
    web there is no AndroidHost object and none of this runs. */
 function connectAndroidHost() {
   var host = window.AndroidHost;
-  if (!host) { return; }
+  if (!host) { return false; }
   document.body.classList.add("in-app");
   window.docviewerOpenPending = openHostFiles;
   window.docviewerBack = function () {
@@ -99,40 +103,89 @@ function connectAndroidHost() {
   };
   try { host.ready(); } catch (error) { /* the activity went away */ }
   // the document usually arrived before this page finished loading
-  openHostFiles();
+  return openHostFiles();
 }
 
+/** Pull whatever the app queued for us; returns false when there was nothing. */
 function openHostFiles() {
   var host = window.AndroidHost;
-  if (!host || state.loadingHost) { return; }
+  if (!host || state.loadingHost) { return false; }
   var count = 0;
-  try { count = host.count(); } catch (error) { return; }
-  if (!count) { return; }
+  try { count = host.count(); } catch (error) { return false; }
+  if (!count) { return false; }
   state.loadingHost = true;
   dom.main.textContent = "";
   dom.main.appendChild(element("div", "spinner"));
   var files = [];
   var problem = "";
-  for (var index = 0; index < count; index++) {
-    var name = host.name(index);
-    var size = host.size(index);
-    if (size < 0) {
-      problem = host.error(index) || "파일을 읽지 못했습니다.";
-      continue;
+  var problemFile = null;
+  try {
+    for (var position = 0; position < count; position++) {
+      var id = host.id(position);
+      var name = host.name(id) || "문서";
+      var mime = hostMime(host, id);
+      var size = host.size(id);
+      if (size < 0) {
+        problem = host.error(id) || "파일을 읽지 못했습니다.";
+        problemFile = { name: name, size: 0, mime: mime, hostId: id };
+        continue;
+      }
+      var parts = [];
+      var received = 0;
+      while (received < size) {
+        var piece = base64Bytes(host.chunk(id, received, HOST_CHUNK));
+        if (!piece.length) {
+          break;                     // the activity ran out of data earlier than it said
+        }
+        parts.push(piece);
+        received += piece.length;
+      }
+      if (received !== size) {
+        problem = "파일을 끝까지 읽지 못했습니다 (" + received + " / " + size + " 바이트).";
+        problemFile = { name: name, size: size, mime: mime, hostId: id };
+        continue;
+      }
+      var file = new File(parts, name);
+      file.hostMime = mime;
+      file.hostId = id;
+      files.push(file);
     }
-    var parts = [];
-    for (var offset = 0; offset < size; offset += HOST_CHUNK) {
-      parts.push(base64Bytes(host.chunk(index, offset, HOST_CHUNK)));
-    }
-    files.push(new File(parts, name));
+  } catch (error) {
+    problem = error && error.message ? error.message : String(error);
+  } finally {
+    // whatever happened, the next document must not find the loader still busy
+    state.loadingHost = false;
+    try { host.done(); } catch (error) { /* nothing to release */ }
   }
-  try { host.done(); } catch (error) { /* nothing to release */ }
-  state.loadingHost = false;
   if (files.length) {
     addFiles(files);
   } else {
-    renderMessage("파일을 열지 못했습니다", problem, true);
+    state.current = problemFile;
+    renderMessage("파일을 열지 못했습니다", problem || "내용을 읽지 못했습니다.", true);
   }
+  return true;
+}
+
+function hostMime(host, id) {
+  try {
+    return host.mime ? host.mime(id) : "";
+  } catch (error) {
+    return "";
+  }
+}
+
+/** Some apps hand over a file whose name says nothing; fall back to its type. */
+function kindFromMime(mime) {
+  mime = (mime || "").toLowerCase();
+  if (!mime) { return null; }
+  if (mime === "application/pdf") { return "pdf"; }
+  if (mime.indexOf("wordprocessingml") >= 0) { return "document"; }
+  if (mime.indexOf("spreadsheetml") >= 0) { return "spreadsheet"; }
+  if (mime.indexOf("presentationml") >= 0) { return "presentation"; }
+  if (mime.indexOf("csv") >= 0 || mime.indexOf("tab-separated") >= 0) { return "spreadsheet"; }
+  if (mime.indexOf("image/") === 0) { return "image"; }
+  if (mime.indexOf("text/") === 0) { return "text"; }
+  return null;
 }
 
 function base64Bytes(text) {
@@ -201,6 +254,11 @@ function readZip(buffer) {
   if (end < 0) { throw new Error("압축(zip) 구조를 찾지 못했습니다. 파일이 손상되었을 수 있습니다."); }
   var count = view.getUint16(end + 10, true);
   var offset = view.getUint32(end + 16, true);
+  if (count === 0xffff || offset === 0xffffffff) {
+    var zip64 = readZip64End(view, buffer, end);
+    count = zip64.count;
+    offset = zip64.offset;
+  }
   var entries = {};
   var decoder = new TextDecoder("utf-8");
   var position = offset;
@@ -210,14 +268,57 @@ function readZip(buffer) {
     var extraLength = view.getUint16(position + 30, true);
     var commentLength = view.getUint16(position + 32, true);
     var name = decoder.decode(new Uint8Array(buffer, position + 46, nameLength));
-    entries[name] = {
+    var entry = {
       method: view.getUint16(position + 10, true),
       size: view.getUint32(position + 20, true),
+      plain: view.getUint32(position + 24, true),
       local: view.getUint32(position + 42, true)
     };
+    if (entry.size === 0xffffffff || entry.local === 0xffffffff) {
+      readZip64Extra(view, position + 46 + nameLength, extraLength, entry);
+    }
+    entries[name] = entry;
     position += 46 + nameLength + extraLength + commentLength;
   }
   return { buffer: buffer, view: view, entries: entries };
+}
+
+/** Large archives keep the real entry count and directory offset in a zip64 record. */
+function readZip64End(view, buffer, end) {
+  var locator = end - 20;
+  if (locator < 0 || view.getUint32(locator, true) !== 0x07064b50) {
+    throw new Error("큰 zip 파일의 목록을 찾지 못했습니다.");
+  }
+  var record = readUint64(view, locator + 8);
+  if (record < 0 || record + 56 > buffer.byteLength
+      || view.getUint32(record, true) !== 0x06064b50) {
+    throw new Error("큰 zip 파일의 목록을 찾지 못했습니다.");
+  }
+  return { count: readUint64(view, record + 32), offset: readUint64(view, record + 48) };
+}
+
+/** The 0x0001 extra field carries the 64 bit sizes and offset of one entry. */
+function readZip64Extra(view, start, length, entry) {
+  var position = start;
+  var limit = start + length;
+  while (position + 4 <= limit) {
+    var id = view.getUint16(position, true);
+    var size = view.getUint16(position + 2, true);
+    if (id === 0x0001) {
+      var cursor = position + 4;
+      if (entry.plain === 0xffffffff) { entry.plain = readUint64(view, cursor); cursor += 8; }
+      if (entry.size === 0xffffffff) { entry.size = readUint64(view, cursor); cursor += 8; }
+      if (entry.local === 0xffffffff) { entry.local = readUint64(view, cursor); }
+      return;
+    }
+    position += 4 + size;
+  }
+}
+
+function readUint64(view, position) {
+  var low = view.getUint32(position, true);
+  var high = view.getUint32(position + 4, true);
+  return high * 4294967296 + low;
 }
 
 async function entryBytes(zip, name) {
@@ -233,11 +334,170 @@ async function entryBytes(zip, name) {
   var data = new Uint8Array(zip.buffer, from, entry.size);
   if (entry.method === 0) { return data; }
   if (entry.method !== 8) { throw new Error("지원하지 않는 압축 방식입니다."); }
-  if (typeof DecompressionStream === "undefined") {
-    throw new Error("이 브라우저는 압축 해제를 지원하지 않습니다. 크롬이나 사파리 최신 버전을 사용해 주세요.");
+  return await inflate(data);
+}
+
+async function inflate(data) {
+  /* Newer browsers unzip natively; older android webviews have no
+     DecompressionStream, so the deflate decoder below takes over. */
+  if (typeof DecompressionStream !== "undefined") {
+    try {
+      var stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    } catch (error) {
+      /* fall through to the decoder below */
+    }
   }
-  var stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  return inflateRaw(data);
+}
+
+var LENGTH_BASE = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67,
+                   83, 99, 115, 131, 163, 195, 227, 258];
+var LENGTH_EXTRA = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5,
+                    5, 5, 0];
+var DIST_BASE = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769,
+                 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577];
+var DIST_EXTRA = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11,
+                  11, 12, 12, 13, 13];
+var CODE_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+var fixedLiteralTree = null;
+var fixedDistanceTree = null;
+
+/** Decode a raw deflate stream (RFC 1951). */
+function inflateRaw(data) {
+  var position = 0, bitBuffer = 0, bitCount = 0;
+  var out = new Uint8Array(Math.max(1024, data.length * 4)), length = 0;
+
+  function bits(count) {
+    while (bitCount < count) {
+      if (position >= data.length) { throw new Error("압축 데이터가 중간에 끊겼습니다."); }
+      bitBuffer |= data[position++] << bitCount;
+      bitCount += 8;
+    }
+    var value = bitBuffer & ((1 << count) - 1);
+    bitBuffer >>>= count;
+    bitCount -= count;
+    return value;
+  }
+
+  function decode(table) {
+    var code = 0, first = 0, index = 0;
+    for (var bitLength = 1; bitLength < 16; bitLength++) {
+      code |= bits(1);
+      var count = table.counts[bitLength];
+      if (code - first < count) { return table.symbols[index + (code - first)]; }
+      index += count;
+      first = (first + count) << 1;
+      code <<= 1;
+    }
+    throw new Error("압축 데이터가 손상되었습니다.");
+  }
+
+  function push(byte) {
+    if (length >= out.length) {
+      var bigger = new Uint8Array(out.length * 2);
+      bigger.set(out);
+      out = bigger;
+    }
+    out[length++] = byte;
+  }
+
+  var last;
+  do {
+    last = bits(1);
+    var type = bits(2);
+    if (type === 0) {
+      bitBuffer = 0;
+      bitCount = 0;                                   // stored blocks restart on a byte boundary
+      if (position + 4 > data.length) { throw new Error("압축 데이터가 중간에 끊겼습니다."); }
+      var stored = data[position] | (data[position + 1] << 8);
+      position += 4;
+      for (var index = 0; index < stored; index++) { push(data[position++]); }
+      continue;
+    }
+    var literals, distances;
+    if (type === 1) {
+      literals = fixedTrees()[0];
+      distances = fixedTrees()[1];
+    } else if (type === 2) {
+      var literalCount = bits(5) + 257;
+      var distanceCount = bits(5) + 1;
+      var codeCount = bits(4) + 4;
+      var codeLengths = new Int32Array(19);
+      for (var order = 0; order < codeCount; order++) {
+        codeLengths[CODE_ORDER[order]] = bits(3);
+      }
+      var codeTree = huffmanTree(codeLengths);
+      var lengths = new Int32Array(literalCount + distanceCount);
+      var cursor = 0;
+      while (cursor < lengths.length) {
+        var symbol = decode(codeTree);
+        var repeat;
+        if (symbol < 16) {
+          lengths[cursor++] = symbol;
+        } else if (symbol === 16) {
+          repeat = 3 + bits(2);
+          while (repeat--) { lengths[cursor] = lengths[cursor - 1]; cursor++; }
+        } else if (symbol === 17) {
+          repeat = 3 + bits(3);
+          while (repeat--) { lengths[cursor++] = 0; }
+        } else {
+          repeat = 11 + bits(7);
+          while (repeat--) { lengths[cursor++] = 0; }
+        }
+      }
+      literals = huffmanTree(lengths.subarray(0, literalCount));
+      distances = huffmanTree(lengths.subarray(literalCount));
+    } else {
+      throw new Error("알 수 없는 압축 블록입니다.");
+    }
+    for (;;) {
+      var value = decode(literals);
+      if (value === 256) { break; }
+      if (value < 256) {
+        push(value);
+        continue;
+      }
+      value -= 257;
+      var copy = LENGTH_BASE[value] + bits(LENGTH_EXTRA[value]);
+      var distanceSymbol = decode(distances);
+      var distance = DIST_BASE[distanceSymbol] + bits(DIST_EXTRA[distanceSymbol]);
+      var from = length - distance;
+      if (from < 0) { throw new Error("압축 데이터가 손상되었습니다."); }
+      for (var step = 0; step < copy; step++) { push(out[from + step]); }
+    }
+  } while (!last);
+  return out.subarray(0, length);
+}
+
+function fixedTrees() {
+  if (!fixedLiteralTree) {
+    var lengths = new Int32Array(288);
+    for (var index = 0; index < 288; index++) {
+      lengths[index] = index < 144 ? 8 : (index < 256 ? 9 : (index < 280 ? 7 : 8));
+    }
+    fixedLiteralTree = huffmanTree(lengths);
+    var distances = new Int32Array(30);
+    for (var slot = 0; slot < 30; slot++) { distances[slot] = 5; }
+    fixedDistanceTree = huffmanTree(distances);
+  }
+  return [fixedLiteralTree, fixedDistanceTree];
+}
+
+function huffmanTree(lengths) {
+  var counts = new Int32Array(16);
+  for (var index = 0; index < lengths.length; index++) { counts[lengths[index]]++; }
+  counts[0] = 0;
+  var offsets = new Int32Array(16), total = 0;
+  for (var bitLength = 1; bitLength < 16; bitLength++) {
+    offsets[bitLength] = total;
+    total += counts[bitLength];
+  }
+  var symbols = new Int32Array(total);
+  for (var symbol = 0; symbol < lengths.length; symbol++) {
+    if (lengths[symbol]) { symbols[offsets[lengths[symbol]]++] = symbol; }
+  }
+  return { counts: counts, symbols: symbols };
 }
 
 async function entryText(zip, name) {
@@ -993,10 +1253,13 @@ async function open(file) {
   dom.back.hidden = false;
   dom.main.textContent = "";
   dom.main.appendChild(element("div", "spinner"));
-  var kind = kindOf(file.name);
+  releasePdf();
+  var kind = kindOf(file.name) || kindFromMime(file.hostMime || file.type);
   try {
     var payload;
-    if (kind === "pdf" || kind === "image") {
+    if (kind === "pdf") {
+      payload = openPdf(file);
+    } else if (kind === "image") {
       payload = { kind: kind, url: objectUrl(file) };
     } else if (kind === "text") {
       payload = { kind: "text", text: decodeText(await file.arrayBuffer()) };
@@ -1022,6 +1285,31 @@ async function open(file) {
   }
 }
 
+/** Android's WebView cannot display a pdf, so the app renders the pages for us. */
+function openPdf(file) {
+  var host = window.AndroidHost;
+  if (host && host.pdfOpen && file.hostId) {
+    var pages = 0;
+    try { pages = host.pdfOpen(file.hostId); } catch (error) { pages = -1; }
+    if (pages > 0) {
+      state.pdfOpen = true;
+      return { kind: "pdf", pages: pages, hostId: file.hostId };
+    }
+    return { kind: "unsupported", hostId: file.hostId,
+             message: "이 PDF 를 그리지 못했습니다. 암호가 걸려 있거나 형식이 특이한 파일일 수 "
+                      + "있습니다. 아래 단추로 다른 앱에서 열어 보세요." };
+  }
+  return { kind: "pdf", url: objectUrl(file) };
+}
+
+function releasePdf() {
+  if (!state.pdfOpen) { return; }
+  state.pdfOpen = false;
+  try {
+    if (window.AndroidHost && window.AndroidHost.pdfClose) { window.AndroidHost.pdfClose(); }
+  } catch (error) { /* the app went away */ }
+}
+
 function objectUrl(file) {
   var url = URL.createObjectURL(file);
   state.urls.push(url);
@@ -1031,6 +1319,7 @@ function objectUrl(file) {
 /* --------------------------------------------------------------------- ui */
 
 function showList() {
+  releasePdf();
   state.current = null;
   state.payload = null;
   dom.title.textContent = "📄 문서 뷰어";
@@ -1148,6 +1437,10 @@ function addShare(toolbar, url, name) {
 }
 
 function renderPdf(payload, body, toolbar) {
+  if (payload.pages) {
+    renderPdfPages(payload, body, toolbar);
+    return;
+  }
   addShare(toolbar, payload.url, state.current.name);
   var note = element("div", "warn",
     "휴대폰 브라우저에 따라 아래 미리보기가 비어 보일 수 있습니다. 그럴 때는 위의 "
@@ -1159,6 +1452,62 @@ function renderPdf(payload, body, toolbar) {
   frame.style.cssText = "width:calc(100% - 24px);height:70vh;margin:12px;border:1px solid "
     + "var(--border);border-radius:var(--radius);background:var(--surface)";
   body.appendChild(frame);
+}
+
+function renderPdfPages(payload, body, toolbar) {
+  var stage = element("div", "page-stage");
+  var image = document.createElement("img");
+  image.alt = "";
+  stage.appendChild(image);
+  body.appendChild(stage);
+  var bar = element("div", "slide-bar");
+  var previous = element("button", null, "◀");
+  var counter = element("span", "zoom", "1 / " + payload.pages);
+  var next = element("button", null, "▶");
+  bar.appendChild(previous);
+  bar.appendChild(counter);
+  bar.appendChild(next);
+  body.appendChild(bar);
+
+  function show(number) {
+    state.page = Math.min(payload.pages - 1, Math.max(0, number));
+    var width = Math.round(stage.clientWidth * (window.devicePixelRatio || 1) * state.zoom);
+    var data = "";
+    try {
+      data = window.AndroidHost.pdfPage(state.page, width || 1000);
+    } catch (error) {
+      data = "";
+    }
+    if (data) {
+      image.src = "data:image/jpeg;base64," + data;
+      image.style.width = (100 * state.zoom) + "%";
+    } else {
+      renderMessage("이 쪽을 그리지 못했습니다",
+                    (state.page + 1) + "쪽을 그리는 중 문제가 생겼습니다.", true);
+      return;
+    }
+    counter.textContent = (state.page + 1) + " / " + payload.pages;
+    dom["title"].textContent = state.current.name;
+  }
+
+  previous.addEventListener("click", function () { show(state.page - 1); });
+  next.addEventListener("click", function () { show(state.page + 1); });
+  var startX = null;
+  stage.addEventListener("touchstart", function (event) {
+    startX = event.touches[0].clientX;
+  }, { passive: true });
+  stage.addEventListener("touchend", function (event) {
+    if (startX === null) { return; }
+    var delta = event.changedTouches[0].clientX - startX;
+    if (Math.abs(delta) > 50) { show(state.page + (delta < 0 ? 1 : -1)); }
+    startX = null;
+  });
+  addZoom(toolbar, function () { show(state.page); });
+  addButton(toolbar, "↗ 다른 앱", function () {
+    try { window.AndroidHost.openElsewhere(payload.hostId); } catch (error) { /* gone */ }
+  }, false);
+  state.page = 0;
+  show(0);
 }
 
 function renderImage(payload, body, toolbar) {
@@ -1353,10 +1702,42 @@ function renderMessage(title, detail, isError) {
   var card = element("div", "card" + (isError ? " error" : ""));
   card.appendChild(element("h3", null, title));
   if (detail) { card.appendChild(element("p", null, detail)); }
+  var file = state.current;
+  if (file) {
+    var facts = element("div", "facts");
+    facts.appendChild(element("div", null, "파일: " + (file.name || "")));
+    if (file.size) { facts.appendChild(element("div", null, "크기: " + formatSize(file.size))); }
+    var kind = kindOf(file.name || "") || kindFromMime(file.hostMime || file.type);
+    facts.appendChild(element("div", null, "형식: " + (KIND_LABELS[kind] || "알 수 없음")
+      + (file.hostMime || file.type ? " (" + (file.hostMime || file.type) + ")" : "")));
+    facts.appendChild(element("div", null, "환경: " + environmentLine()));
+    card.appendChild(facts);
+    card.appendChild(element("p", "hint",
+      "고쳐야 할 문제라면 이 화면을 캡처해서 알려 주세요."));
+  }
+  var buttons = element("div", "card-buttons");
   var back = element("button", null, "목록으로");
   back.addEventListener("click", showList);
-  card.appendChild(back);
+  buttons.appendChild(back);
+  if (window.AndroidHost && window.AndroidHost.openElsewhere && file && file.hostId) {
+    var elsewhere = element("button", null, "다른 앱으로 열기");
+    elsewhere.addEventListener("click", function () {
+      try { window.AndroidHost.openElsewhere(file.hostId); } catch (error) { /* gone */ }
+    });
+    buttons.appendChild(elsewhere);
+  }
+  card.appendChild(buttons);
   dom.main.appendChild(card);
+}
+
+function environmentLine() {
+  var parts = [];
+  if (window.AndroidHost && window.AndroidHost.describe) {
+    try { parts.push(window.AndroidHost.describe()); } catch (error) { /* gone */ }
+  }
+  parts.push(typeof DecompressionStream === "undefined" ? "내장 압축해제 없음(자체 해제 사용)"
+                                                        : "내장 압축해제");
+  return parts.join(" · ");
 }
 
 function restoreTheme() {

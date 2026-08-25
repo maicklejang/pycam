@@ -86,11 +86,12 @@ python3 docviewer/android/build.py --output docviewer.apk
 | 파워포인트 `.pptx` | 슬라이드 배치 그대로, 좌우로 밀어 넘기기, 발표자 노트 |
 | `.csv .tsv` | 표로 변환 (UTF-8 / EUC-KR) |
 | 그림 | 확대·축소·회전 |
-| PDF | 브라우저 PDF 보기 (일부 휴대폰에서는 '새 탭' 단추로 열림) |
+| PDF | 앱에서는 안드로이드가 쪽을 그려 표시, 브라우저에서는 브라우저 PDF 보기 |
 | 텍스트 | 글자 크기 조절 |
 
 `.docx / .xlsx / .pptx` 는 zip 파일이라 브라우저의 `DecompressionStream` 으로 풀고
-`DOMParser` 로 읽습니다. 외부 라이브러리가 전혀 없고, 최신 크롬·사파리에서 동작합니다.
+`DOMParser` 로 읽습니다. 그 기능이 없는 오래된 브라우저에서는 뷰어에 들어 있는
+deflate 해제기가 대신 동작하므로 외부 라이브러리는 여전히 필요 없습니다.
 `.doc / .xls / .ppt` 같은 구형 형식은 휴대폰에서 열 수 없어, 최신 형식으로 저장하라고
 안내합니다(컴퓨터에서 실행할 때는 LibreOffice 로 변환합니다).
 

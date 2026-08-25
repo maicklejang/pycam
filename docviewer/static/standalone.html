@@ -127,6 +127,13 @@ table.grid td { max-width: 60vw; }
 .notes { margin: 0 12px 16px; padding: 12px 14px; background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius); white-space: pre-wrap;
   font-size: 14px; }
+.page-stage { display: flex; justify-content: center; padding: 12px; overflow: auto; }
+.page-stage img { max-width: 100%; box-shadow: var(--shadow); border-radius: 4px;
+  background: #fff; }
+.facts { margin: 10px 0; padding: 10px 12px; background: var(--surface-2); border-radius: 10px;
+  font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 2px;
+  word-break: break-all; }
+.card-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .image-stage { display: flex; justify-content: center; padding: 12px; }
 .image-stage img { max-width: 100%; border-radius: 8px; box-shadow: var(--shadow);
   transition: transform .12s; }

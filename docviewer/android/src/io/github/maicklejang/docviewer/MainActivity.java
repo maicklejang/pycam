@@ -4,8 +4,12 @@ import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.pdf.PdfRenderer;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
 import android.provider.OpenableColumns;
 import android.util.Base64;
 import android.view.ViewGroup;
@@ -18,9 +22,11 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -28,24 +34,43 @@ import java.util.Map;
  * Shows the docviewer web ui in a WebView and hands it the documents the user
  * opened from another app.
  *
- * The app has no internet permission: everything - unzipping the office file,
- * parsing its xml, drawing the page - happens inside the WebView, on the file
- * bytes this activity reads from the incoming content uri.
+ * The app has no internet permission: unzipping the office file, parsing its
+ * xml and drawing the page all happen inside the WebView, on bytes this
+ * activity reads from the incoming content uri.  Pdf files are the exception -
+ * android's WebView cannot display them, so {@link PdfRenderer} draws the pages
+ * here and the page shows the resulting images.
  */
 public class MainActivity extends Activity {
 
     /** Documents larger than this are refused rather than held in memory twice. */
     private static final int MAX_BYTES = 64 * 1024 * 1024;
+    /** How many documents keep their bytes around for paging through a pdf. */
+    private static final int KEEP_LOADED = 3;
+    private static final int MAX_PAGE_WIDTH = 2400;
     private static final int PICK_REQUEST = 1;
     private static final String PAGE = "file:///android_asset/index.html";
 
-    private final List<Uri> pending = new ArrayList<Uri>();
-    private final Map<Integer, byte[]> loaded = new HashMap<Integer, byte[]>();
-    private final Map<Integer, String> failures = new HashMap<Integer, String>();
+    private final Map<Integer, Document> documents = new LinkedHashMap<Integer, Document>();
+    private final List<Integer> queue = new ArrayList<Integer>();
+    private final Object lock = new Object();
 
     private WebView webView;
     private ValueCallback<Uri[]> fileCallback;
     private boolean pageReady;
+    private int nextId = 1;
+
+    private PdfRenderer pdfRenderer;
+    private ParcelFileDescriptor pdfDescriptor;
+    private File pdfFile;
+
+    /** One document the user asked to open. */
+    private static class Document {
+        Uri uri;
+        String name;
+        String mime;
+        byte[] bytes;
+        String error;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -78,6 +103,12 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onDestroy() {
+        closePdf();
+        super.onDestroy();
+    }
+
+    @Override
     public void onBackPressed() {
         // the page goes back to its file list first; a second press leaves the app
         webView.evaluateJavascript("window.docviewerBack ? window.docviewerBack() : false",
@@ -103,7 +134,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Collect every uri carried by an incoming intent. */
+    /** Queue every uri carried by an incoming intent. */
     private void collect(Intent intent) {
         if (intent == null) {
             return;
@@ -132,8 +163,29 @@ public class MainActivity extends Activity {
         if (found.isEmpty()) {
             return;
         }
-        synchronized (pending) {
-            pending.addAll(found);
+        synchronized (lock) {
+            for (int index = 0; index < found.size(); index++) {
+                Document document = new Document();
+                document.uri = found.get(index);
+                document.mime = typeOf(document.uri);
+                document.name = nameOf(document.uri, document.mime);
+                int id = nextId++;
+                documents.put(Integer.valueOf(id), document);
+                queue.add(Integer.valueOf(id));
+            }
+            trim();
+        }
+    }
+
+    /** Keep only the most recent documents in memory. */
+    private void trim() {
+        List<Integer> ids = new ArrayList<Integer>(documents.keySet());
+        for (int index = 0; index < ids.size() - KEEP_LOADED; index++) {
+            Integer id = ids.get(index);
+            if (queue.contains(id)) {
+                continue;
+            }
+            documents.remove(id);
         }
     }
 
@@ -150,21 +202,21 @@ public class MainActivity extends Activity {
         });
     }
 
-    /** Read a document once and keep it until the page says it is done with it. */
-    private byte[] bytesOf(int index) {
-        synchronized (pending) {
-            if (loaded.containsKey(index)) {
-                return loaded.get(index);
-            }
-            if (index < 0 || index >= pending.size()) {
+    /** Read a document once; the bytes stay until an older document is evicted. */
+    private byte[] bytesOf(int id) {
+        synchronized (lock) {
+            Document document = documents.get(Integer.valueOf(id));
+            if (document == null) {
                 return null;
             }
-            Uri uri = pending.get(index);
+            if (document.bytes != null) {
+                return document.bytes;
+            }
             InputStream stream = null;
             try {
-                stream = getContentResolver().openInputStream(uri);
+                stream = getContentResolver().openInputStream(document.uri);
                 if (stream == null) {
-                    failures.put(index, "파일을 열 수 없습니다.");
+                    document.error = "파일을 열 수 없습니다. 다른 앱에서 다시 열어 주세요.";
                     return null;
                 }
                 ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -172,16 +224,22 @@ public class MainActivity extends Activity {
                 int read;
                 while ((read = stream.read(chunk)) > 0) {
                     if (buffer.size() + read > MAX_BYTES) {
-                        failures.put(index, "파일이 너무 큽니다 (64MB 까지).");
+                        document.error = "파일이 너무 큽니다 (64MB 까지).";
                         return null;
                     }
                     buffer.write(chunk, 0, read);
                 }
-                byte[] data = buffer.toByteArray();
-                loaded.put(index, data);
-                return data;
+                document.bytes = buffer.toByteArray();
+                if (document.bytes.length == 0) {
+                    document.error = "파일이 비어 있습니다.";
+                    return null;
+                }
+                return document.bytes;
             } catch (Exception error) {
-                failures.put(index, "파일을 읽지 못했습니다: " + error.getMessage());
+                document.error = "파일을 읽지 못했습니다: " + error;
+                return null;
+            } catch (OutOfMemoryError error) {
+                document.error = "메모리가 부족해 이 파일을 열 수 없습니다.";
                 return null;
             } finally {
                 if (stream != null) {
@@ -195,8 +253,18 @@ public class MainActivity extends Activity {
         }
     }
 
+    private String typeOf(Uri uri) {
+        String mime = null;
+        try {
+            mime = getContentResolver().getType(uri);
+        } catch (Exception ignored) {
+            mime = null;
+        }
+        return mime == null ? "" : mime;
+    }
+
     /** Display name of a document, with an extension the viewer can recognise. */
-    private String nameOf(Uri uri) {
+    private String nameOf(Uri uri, String mime) {
         String name = null;
         if ("content".equals(uri.getScheme())) {
             Cursor cursor = null;
@@ -223,7 +291,7 @@ public class MainActivity extends Activity {
             name = "문서";
         }
         if (name.lastIndexOf('.') <= 0) {
-            String extension = extensionFor(getContentResolver().getType(uri));
+            String extension = extensionFor(mime);
             if (extension != null) {
                 name = name + extension;
             }
@@ -232,7 +300,7 @@ public class MainActivity extends Activity {
     }
 
     private static String extensionFor(String mime) {
-        if (mime == null) {
+        if (mime == null || mime.length() == 0) {
             return null;
         }
         if (mime.equals("application/pdf")) {
@@ -262,7 +330,111 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    /** The page reads documents through this object; every method runs off the ui thread. */
+    // -- pdf ---------------------------------------------------------------
+
+    /** Open a pdf with android's renderer and return its page count. */
+    private int openPdf(int id) {
+        byte[] data = bytesOf(id);
+        if (data == null) {
+            return -1;
+        }
+        synchronized (lock) {
+            closePdf();
+            try {
+                pdfFile = File.createTempFile("view", ".pdf", getCacheDir());
+                FileOutputStream out = new FileOutputStream(pdfFile);
+                try {
+                    out.write(data);
+                } finally {
+                    out.close();
+                }
+                pdfDescriptor = ParcelFileDescriptor.open(pdfFile,
+                                                          ParcelFileDescriptor.MODE_READ_ONLY);
+                pdfRenderer = new PdfRenderer(pdfDescriptor);
+                return pdfRenderer.getPageCount();
+            } catch (Exception error) {
+                closePdf();
+                return -1;
+            }
+        }
+    }
+
+    private String renderPdfPage(int number, int width) {
+        synchronized (lock) {
+            if (pdfRenderer == null || number < 0 || number >= pdfRenderer.getPageCount()) {
+                return "";
+            }
+            Bitmap bitmap = null;
+            PdfRenderer.Page page = null;
+            try {
+                page = pdfRenderer.openPage(number);
+                int target = Math.max(320, Math.min(width, MAX_PAGE_WIDTH));
+                int height = Math.max(1, target * page.getHeight() / page.getWidth());
+                bitmap = Bitmap.createBitmap(target, height, Bitmap.Config.ARGB_8888);
+                bitmap.eraseColor(Color.WHITE);
+                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out);
+                return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+            } catch (Exception error) {
+                return "";
+            } catch (OutOfMemoryError error) {
+                return "";
+            } finally {
+                if (page != null) {
+                    page.close();
+                }
+                if (bitmap != null) {
+                    bitmap.recycle();
+                }
+            }
+        }
+    }
+
+    private void closePdf() {
+        synchronized (lock) {
+            try {
+                if (pdfRenderer != null) {
+                    pdfRenderer.close();
+                }
+                if (pdfDescriptor != null) {
+                    pdfDescriptor.close();
+                }
+            } catch (Exception ignored) {
+                // the renderer is going away anyway
+            }
+            pdfRenderer = null;
+            pdfDescriptor = null;
+            if (pdfFile != null) {
+                pdfFile.delete();
+                pdfFile = null;
+            }
+        }
+    }
+
+    /** Hand a document to another app - used when the viewer cannot show it. */
+    private void openElsewhere(int id) {
+        Uri uri;
+        String mime;
+        synchronized (lock) {
+            Document document = documents.get(Integer.valueOf(id));
+            if (document == null) {
+                return;
+            }
+            uri = document.uri;
+            mime = document.mime;
+        }
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setDataAndType(uri, mime == null || mime.length() == 0 ? "*/*" : mime);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivity(Intent.createChooser(intent, "다른 앱으로 열기"));
+        } catch (ActivityNotFoundException error) {
+            Toast.makeText(this, "이 파일을 열 수 있는 다른 앱이 없습니다.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** The page talks to the app through this object; every method runs off the ui thread. */
     private class Bridge {
 
         @JavascriptInterface
@@ -273,38 +445,54 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public int count() {
-            synchronized (pending) {
-                return pending.size();
+            synchronized (lock) {
+                return queue.size();
             }
         }
 
         @JavascriptInterface
-        public String name(int index) {
-            synchronized (pending) {
-                if (index < 0 || index >= pending.size()) {
-                    return "";
+        public int id(int position) {
+            synchronized (lock) {
+                if (position < 0 || position >= queue.size()) {
+                    return -1;
                 }
-                return nameOf(pending.get(index));
+                return queue.get(position).intValue();
             }
         }
 
         @JavascriptInterface
-        public int size(int index) {
-            byte[] data = bytesOf(index);
+        public String name(int id) {
+            synchronized (lock) {
+                Document document = documents.get(Integer.valueOf(id));
+                return document == null ? "" : document.name;
+            }
+        }
+
+        @JavascriptInterface
+        public String mime(int id) {
+            synchronized (lock) {
+                Document document = documents.get(Integer.valueOf(id));
+                return document == null ? "" : document.mime;
+            }
+        }
+
+        @JavascriptInterface
+        public int size(int id) {
+            byte[] data = bytesOf(id);
             return data == null ? -1 : data.length;
         }
 
         @JavascriptInterface
-        public String error(int index) {
-            synchronized (pending) {
-                String message = failures.get(index);
-                return message == null ? "" : message;
+        public String error(int id) {
+            synchronized (lock) {
+                Document document = documents.get(Integer.valueOf(id));
+                return document == null || document.error == null ? "" : document.error;
             }
         }
 
         @JavascriptInterface
-        public String chunk(int index, int offset, int length) {
-            byte[] data = bytesOf(index);
+        public String chunk(int id, int offset, int length) {
+            byte[] data = bytesOf(id);
             if (data == null || offset < 0 || offset >= data.length) {
                 return "";
             }
@@ -314,11 +502,55 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void done() {
-            synchronized (pending) {
-                pending.clear();
-                loaded.clear();
-                failures.clear();
+            synchronized (lock) {
+                queue.clear();
+                trim();
             }
+        }
+
+        @JavascriptInterface
+        public int pdfOpen(int id) {
+            return openPdf(id);
+        }
+
+        @JavascriptInterface
+        public String pdfPage(int number, int width) {
+            return renderPdfPage(number, width);
+        }
+
+        @JavascriptInterface
+        public void pdfClose() {
+            closePdf();
+        }
+
+        @JavascriptInterface
+        public void openElsewhere(final int id) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    MainActivity.this.openElsewhere(id);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public String describe() {
+            return "android " + android.os.Build.VERSION.RELEASE
+                + " / webview " + webViewVersion();
+        }
+    }
+
+    private String webViewVersion() {
+        try {
+            String agent = webView.getSettings().getUserAgentString();
+            int start = agent.indexOf("Chrome/");
+            if (start < 0) {
+                return "알 수 없음";
+            }
+            int end = agent.indexOf(' ', start);
+            return agent.substring(start + 7, end < 0 ? agent.length() : end);
+        } catch (Exception error) {
+            return "알 수 없음";
         }
     }
 
@@ -326,7 +558,8 @@ public class MainActivity extends Activity {
 
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, String url) {
-            if (url != null && url.startsWith("file:///android_asset/")) {
+            if (url == null || url.startsWith("file:///android_asset/")
+                    || url.startsWith("blob:") || url.startsWith("data:")) {
                 return false;
             }
             // links inside a document open in the browser, never inside the viewer
@@ -351,6 +584,10 @@ public class MainActivity extends Activity {
             fileCallback = callback;
             Intent intent = parameters.createIntent();
             intent.addCategory(Intent.CATEGORY_OPENABLE);
+            // android matches on mime types only: keeping the page's extension list
+            // would leave the picker empty on some phones
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
             try {
                 startActivityForResult(intent, PICK_REQUEST);
             } catch (ActivityNotFoundException error) {
