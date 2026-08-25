@@ -57,6 +57,19 @@ python3 -m docviewer --samples /tmp/예제   # 형식별 예제를 만들어 열
 
 3. **아무 웹서버에 올리기** — 1번에서 만든 파일 하나를 올리면 그대로 동작합니다.
 
+### 안드로이드 앱으로 설치하기
+
+APK 를 만들어 설치하면 **다운로드한 파일을 누르면 바로 이 뷰어로 열립니다**
+(열기 목록에 "문서 뷰어" 가 나타납니다).
+
+```
+python3 docviewer/android/build.py --output docviewer.apk
+```
+
+만들어진 `docviewer.apk` 를 휴대폰으로 옮겨 실행하면 설치됩니다. 빌드에 필요한
+도구와 설치 방법은 [android/README.md](android/README.md) 에 정리해 두었습니다.
+앱에는 인터넷 권한이 없어서 문서가 기기 밖으로 나갈 수 없습니다.
+
 ### 홈 화면에 추가(설치)
 
 * 아이폰(사파리): 아래 **공유** → **홈 화면에 추가**
@@ -122,6 +135,8 @@ docviewer/
 ├── render/          docx·xlsx·pptx 파서 (zipfile + ElementTree 만 사용)
 ├── samples.py       형식별 예제 파일 생성기
 ├── phonepage.py     휴대폰용 단일 HTML 빌더
+├── icons.py         아이콘 생성기 (웹 아이콘과 안드로이드 런처 아이콘)
+├── android/         안드로이드 앱 (WebView + 인텐트 필터) 과 apk 빌드 스크립트
 ├── static/          화면 (index.html, style.css, app.js)
 │                    + 휴대폰 화면 (standalone.html, viewer.js) 과 아이콘·매니페스트
 └── tests/           단위 테스트와 HTTP 통합 테스트

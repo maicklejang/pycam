@@ -18,8 +18,10 @@ var EXTENSIONS = {
 };
 var LEGACY = ["doc", "xls", "ppt", "rtf", "odt", "ods", "odp", "hwp"];
 
+var HOST_CHUNK = 512 * 1024;
+
 var state = { files: [], current: null, payload: null, zoom: 1, sheet: 0, slide: 0,
-              rotation: 0, fit: true, notes: false, urls: [] };
+              rotation: 0, fit: true, notes: false, urls: [], loadingHost: false };
 var dom = {};
 
 document.addEventListener("DOMContentLoaded", function () {
@@ -28,6 +30,7 @@ document.addEventListener("DOMContentLoaded", function () {
   });
   restoreTheme();
   installTags();
+  connectAndroidHost();
   dom.pick.addEventListener("click", function () { dom.input.click(); });
   dom.input.addEventListener("change", function () {
     addFiles(Array.prototype.slice.call(dom.input.files));
@@ -80,6 +83,65 @@ function installTags() {
     manifest.href = window.DOCVIEWER_MANIFEST;
     document.head.appendChild(manifest);
   }
+}
+
+/* The android app hands documents over through this bridge: the activity reads
+   the incoming content uri, the page pulls the bytes across in chunks.  On the
+   web there is no AndroidHost object and none of this runs. */
+function connectAndroidHost() {
+  var host = window.AndroidHost;
+  if (!host) { return; }
+  document.body.classList.add("in-app");
+  window.docviewerOpenPending = openHostFiles;
+  window.docviewerBack = function () {
+    if (state.current) { showList(); return true; }
+    return false;
+  };
+  try { host.ready(); } catch (error) { /* the activity went away */ }
+  // the document usually arrived before this page finished loading
+  openHostFiles();
+}
+
+function openHostFiles() {
+  var host = window.AndroidHost;
+  if (!host || state.loadingHost) { return; }
+  var count = 0;
+  try { count = host.count(); } catch (error) { return; }
+  if (!count) { return; }
+  state.loadingHost = true;
+  dom.main.textContent = "";
+  dom.main.appendChild(element("div", "spinner"));
+  var files = [];
+  var problem = "";
+  for (var index = 0; index < count; index++) {
+    var name = host.name(index);
+    var size = host.size(index);
+    if (size < 0) {
+      problem = host.error(index) || "파일을 읽지 못했습니다.";
+      continue;
+    }
+    var parts = [];
+    for (var offset = 0; offset < size; offset += HOST_CHUNK) {
+      parts.push(base64Bytes(host.chunk(index, offset, HOST_CHUNK)));
+    }
+    files.push(new File(parts, name));
+  }
+  try { host.done(); } catch (error) { /* nothing to release */ }
+  state.loadingHost = false;
+  if (files.length) {
+    addFiles(files);
+  } else {
+    renderMessage("파일을 열지 못했습니다", problem, true);
+  }
+}
+
+function base64Bytes(text) {
+  var binary = atob(text || "");
+  var bytes = new Uint8Array(binary.length);
+  for (var index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 function addFiles(files) {
@@ -1000,10 +1062,16 @@ function showList() {
     dom.main.appendChild(drop);
 
     var tip = element("div", "tip");
-    tip.innerHTML = "<b>홈 화면에 추가하기</b><br>"
-      + "아이폰: 사파리 아래 <b>공유</b> → <b>홈 화면에 추가</b><br>"
-      + "안드로이드: 크롬 오른쪽 위 <b>⋮</b> → <b>홈 화면에 추가</b><br>"
-      + "추가하면 앱처럼 아이콘으로 실행되고, 인터넷 없이도 열립니다.";
+    if (window.AndroidHost) {
+      tip.innerHTML = "<b>다운로드한 파일 바로 열기</b><br>"
+        + "파일 앱이나 다운로드 목록에서 문서를 누른 뒤 <b>문서 뷰어</b>를 고르면 "
+        + "바로 이 화면에 열립니다. 다른 앱의 <b>공유</b> 메뉴에서도 보낼 수 있습니다.";
+    } else {
+      tip.innerHTML = "<b>홈 화면에 추가하기</b><br>"
+        + "아이폰: 사파리 아래 <b>공유</b> → <b>홈 화면에 추가</b><br>"
+        + "안드로이드: 크롬 오른쪽 위 <b>⋮</b> → <b>홈 화면에 추가</b><br>"
+        + "추가하면 앱처럼 아이콘으로 실행되고, 인터넷 없이도 열립니다.";
+    }
     dom.main.appendChild(tip);
     return;
   }

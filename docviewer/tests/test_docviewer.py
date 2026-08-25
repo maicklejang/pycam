@@ -9,6 +9,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
+from xml.etree import ElementTree
 
 from docviewer import documents, filetypes, phonepage, server
 from docviewer.render.docx import render_docx
@@ -240,6 +241,65 @@ class PhonePageTest(unittest.TestCase):
             self.assertNotIn(tag, fragment)
         self.assertIn("<title>", fragment)
         self.assertIn("window.DOCVIEWER_ICON", fragment)
+
+
+class AndroidAppTest(unittest.TestCase):
+    """The apk is built outside the test run, so guard what the build depends on."""
+
+    ANDROID = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "android")
+
+    def setUp(self):
+        self.manifest = ElementTree.parse(os.path.join(self.ANDROID, "AndroidManifest.xml"))
+        self.android = "{http://schemas.android.com/apk/res/android}"
+
+    def test_package_matches_the_source_tree(self):
+        package = self.manifest.getroot().get("package")
+        path = os.path.join(self.ANDROID, "src", *package.split("."))
+        self.assertTrue(os.path.isfile(os.path.join(path, "MainActivity.java")), path)
+
+    def test_the_app_cannot_reach_the_network(self):
+        permissions = [node.get(self.android + "name")
+                       for node in self.manifest.getroot().findall("uses-permission")]
+        self.assertNotIn("android.permission.INTERNET", permissions)
+
+    def test_documents_open_straight_from_other_apps(self):
+        types = set()
+        exported = []
+        for activity in self.manifest.getroot().iter("activity"):
+            exported.append(activity.get(self.android + "exported"))
+            for data in activity.iter("data"):
+                if data.get(self.android + "mimeType"):
+                    types.add(data.get(self.android + "mimeType"))
+        # android 12 and later refuse to install a filtered activity without this
+        self.assertEqual(exported, ["true"])
+        for mime in ("application/pdf",
+                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                     "text/csv", "image/png"):
+            self.assertIn(mime, types)
+
+    def test_activity_avoids_constructs_dx_cannot_translate(self):
+        source = os.path.join(self.ANDROID, "src", "io", "github", "maicklejang", "docviewer",
+                              "MainActivity.java")
+        with open(source, encoding="utf-8") as handle:
+            code = handle.read()
+        # lambdas and method references compile to invokedynamic, which the dx
+        # dexer cannot desugar - anonymous classes keep old devices working
+        self.assertNotIn("->", code)
+        self.assertNotIn("::", code)
+
+    def test_the_bridge_methods_the_page_calls_all_exist(self):
+        source = os.path.join(self.ANDROID, "src", "io", "github", "maicklejang", "docviewer",
+                              "MainActivity.java")
+        with open(source, encoding="utf-8") as handle:
+            code = handle.read()
+        with open(os.path.join(os.path.dirname(self.ANDROID), "static", "viewer.js"),
+                  encoding="utf-8") as handle:
+            script = handle.read()
+        for method in re.findall(r"host\.(\w+)\(", script):
+            self.assertIn("public %s" % method, code.replace("public int ", "public ")
+                          .replace("public String ", "public ").replace("public void ", "public "))
 
 
 class ServerTest(RendererTestCase):

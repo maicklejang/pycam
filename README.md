@@ -25,6 +25,11 @@ It also builds a single self-contained html file that works offline on a phone:
 
     python3 -m docviewer --build-phone-page viewer.html
 
+An android apk can be built from the same sources, so files downloaded on a
+phone open straight in the viewer:
+
+    python3 docviewer/android/build.py --output docviewer.apk
+
 See [docviewer/README.md](docviewer/README.md) for details.
 
 
