@@ -38,3 +38,6 @@ debian/pycam/
 debian/pycam.debhelper.log
 debian/pycam.*.debhelper
 debian/pycam.substvars
+
+# docviewer android build output
+docviewer/android/*.apk

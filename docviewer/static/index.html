@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>문서 뷰어</title>
+<meta name="theme-color" content="#2f6feb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="문서 뷰어">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="/static/icon-180.png">
+</head>
+<body>
+<header class="topbar">
+  <button id="toggle-sidebar" class="icon-button" title="목록 접기/펼치기" aria-label="목록 접기">☰</button>
+  <h1 class="brand">📄 문서 뷰어</h1>
+  <div class="topbar-spacer"></div>
+  <span id="root-label" class="root-label" title=""></span>
+  <a id="phone-link" class="icon-button" href="/phone" title="휴대폰에서 파일을 직접 열어보는 화면">📱 휴대폰용</a>
+  <button id="toggle-theme" class="icon-button" title="밝게/어둡게">🌙</button>
+</header>
+
+<main class="layout">
+  <aside id="sidebar" class="sidebar">
+    <nav id="breadcrumbs" class="breadcrumbs" aria-label="현재 폴더"></nav>
+    <div class="filter-row">
+      <input id="filter" type="search" placeholder="파일 이름 검색  ( / )" autocomplete="off">
+    </div>
+    <div id="file-list" class="file-list" role="listbox" aria-label="파일 목록"></div>
+    <footer class="sidebar-footer">
+      <span id="counts"></span>
+      <span id="converter-state" class="hint"></span>
+    </footer>
+  </aside>
+
+  <section class="viewer">
+    <div class="toolbar">
+      <div class="file-title">
+        <span id="current-icon" class="kind-badge"></span>
+        <strong id="current-name">파일을 선택하세요</strong>
+        <span id="current-meta" class="meta"></span>
+      </div>
+      <div id="tools" class="tools"></div>
+    </div>
+    <div id="content" class="content">
+      <div class="placeholder">
+        <p class="placeholder-icon">📂</p>
+        <p>왼쪽 목록에서 파일을 선택하면 여기에 표시됩니다.</p>
+        <p class="hint">PDF · 워드(docx) · 엑셀(xlsx/csv) · 파워포인트(pptx) · 그림 · 텍스트</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

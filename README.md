@@ -14,6 +14,25 @@ Graphical Interface: `pycam/run_gui.py`
 Scripted Toolpath Processing: `pycam/run_cli.py FLOW_SPECIFICATION_FILE`
 
 
+## Document viewer
+
+The repository also ships `docviewer`, a small dependency-free viewer for PDF,
+Word, Excel, PowerPoint, image and text files:
+
+    python3 -m docviewer ~/documents
+
+It also builds a single self-contained html file that works offline on a phone:
+
+    python3 -m docviewer --build-phone-page viewer.html
+
+An android apk can be built from the same sources, so files downloaded on a
+phone open straight in the viewer:
+
+    python3 docviewer/android/build.py --output docviewer.apk
+
+See [docviewer/README.md](docviewer/README.md) for details.
+
+
 ## Resources
 
 See the [documentation](http://pycam.sourceforge.net/introduction/) for a short introduction.

@@ -1,0 +1,16 @@
+{
+  "name": "문서 뷰어",
+  "short_name": "문서 뷰어",
+  "description": "PDF, 워드, 엑셀, 파워포인트, 그림 파일을 열어보는 뷰어",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f5f7",
+  "theme_color": "#2f6feb",
+  "lang": "ko",
+  "icons": [
+    { "src": "/static/icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
