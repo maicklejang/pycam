@@ -87,6 +87,7 @@ body {
 }
 
 .icon-button:hover, .tool-button:hover { background: var(--accent-soft); }
+a.icon-button { text-decoration: none; white-space: nowrap; }
 .tool-button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
 .tool-button:disabled { opacity: 0.45; cursor: default; }
 

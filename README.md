@@ -21,6 +21,10 @@ Word, Excel, PowerPoint, image and text files:
 
     python3 -m docviewer ~/documents
 
+It also builds a single self-contained html file that works offline on a phone:
+
+    python3 -m docviewer --build-phone-page viewer.html
+
 See [docviewer/README.md](docviewer/README.md) for details.
 
 

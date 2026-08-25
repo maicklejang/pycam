@@ -98,6 +98,7 @@ MIME_TYPES = {
     ".js": "text/javascript; charset=utf-8",
     ".html": "text/html; charset=utf-8",
     ".json": "application/json; charset=utf-8",
+    ".webmanifest": "application/manifest+json; charset=utf-8",
 }
 
 # Human readable labels shown in the file list.

@@ -4,8 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>문서 뷰어</title>
+<meta name="theme-color" content="#2f6feb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="문서 뷰어">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
 <link rel="stylesheet" href="/static/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📄</text></svg>">
+<link rel="icon" href="/static/icon-180.png">
 </head>
 <body>
 <header class="topbar">
@@ -13,6 +19,7 @@
   <h1 class="brand">📄 문서 뷰어</h1>
   <div class="topbar-spacer"></div>
   <span id="root-label" class="root-label" title=""></span>
+  <a id="phone-link" class="icon-button" href="/phone" title="휴대폰에서 파일을 직접 열어보는 화면">📱 휴대폰용</a>
   <button id="toggle-theme" class="icon-button" title="밝게/어둡게">🌙</button>
 </header>
 

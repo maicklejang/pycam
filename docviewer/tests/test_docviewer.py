@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import tempfile
 import unittest
@@ -9,7 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from docviewer import documents, filetypes, server
+from docviewer import documents, filetypes, phonepage, server
 from docviewer.render.docx import render_docx
 from docviewer.render.ooxml import BrokenDocument
 from docviewer.render.pptx import render_pptx
@@ -201,6 +202,46 @@ class DocumentsTest(RendererTestCase):
             documents.read_media(self.files["docx"], "word/document.xml")
 
 
+class PhonePageTest(unittest.TestCase):
+    """The phone build has to stay a single file with nothing to fetch."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = phonepage.build()
+
+    def test_script_and_icons_are_inlined(self):
+        self.assertNotIn("/static/viewer.js", self.html)
+        self.assertNotIn("href=\"/static/icon-180.png\"", self.html)
+        self.assertIn("data:image/png;base64,", self.html)
+        self.assertIn("parseDocx", self.html)
+
+    def test_no_remote_references_remain(self):
+        for pattern in ("http://", "https://"):
+            for match in re.findall(pattern + r"[^\s\"']+", self.html):
+                # the only absolute urls left are xml namespaces and the sample link
+                self.assertIn("schemas.openxmlformats.org", match, match)
+
+    def test_manifest_is_embedded_and_valid(self):
+        uri = re.search(r"data:application/manifest\+json,([^'\"]+)", self.html).group(1)
+        manifest = json.loads(urllib.parse.unquote(uri))
+        self.assertEqual(manifest["display"], "standalone")
+        self.assertTrue(manifest["icons"][0]["src"].startswith("data:image/png"))
+
+    def test_written_file_matches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "phone.html")
+            phonepage.build(path)
+            with open(path, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), self.html)
+
+    def test_fragment_has_no_document_skeleton(self):
+        fragment = phonepage.build_fragment()
+        for tag in ("<html", "<head>", "<body>", "<!DOCTYPE"):
+            self.assertNotIn(tag, fragment)
+        self.assertIn("<title>", fragment)
+        self.assertIn("window.DOCVIEWER_ICON", fragment)
+
+
 class ServerTest(RendererTestCase):
 
     @classmethod
@@ -231,6 +272,17 @@ class ServerTest(RendererTestCase):
             body = response.read().decode("utf-8")
         self.assertIn("문서 뷰어", body)
         self.assertEqual(response.headers["Content-Type"], "text/html; charset=utf-8")
+
+    def test_phone_page_and_its_script(self):
+        for route in ("/phone", "/standalone"):
+            with self.get(route) as response:
+                body = response.read().decode("utf-8")
+            self.assertIn("문서 뷰어 (휴대폰용)", body)
+        with self.get("/static/viewer.js") as response:
+            self.assertIn("parseDocx", response.read().decode("utf-8"))
+        with self.get("/manifest.webmanifest") as response:
+            self.assertEqual(json.loads(response.read().decode("utf-8"))["display"],
+                             "standalone")
 
     def test_static_assets(self):
         for name in ("style.css", "app.js"):

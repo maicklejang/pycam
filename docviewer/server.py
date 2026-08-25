@@ -97,6 +97,10 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
         try:
             if route == "/":
                 self._send_static("index.html", with_body)
+            elif route in ("/phone", "/standalone"):
+                self._send_static("standalone.html", with_body)
+            elif route == "/manifest.webmanifest":
+                self._send_static("manifest.webmanifest", with_body)
             elif route.startswith("/static/"):
                 self._send_static(posixpath.basename(route), with_body)
             elif route == "/api/config":
