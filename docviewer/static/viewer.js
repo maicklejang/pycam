@@ -1294,6 +1294,8 @@ function renderMessage(title, detail, isError) {
 function restoreTheme() {
   var stored = null;
   try { stored = localStorage.getItem("docviewer-theme"); } catch (error) { stored = null; }
+  // a page that embeds the viewer may have stamped its own theme already
+  if (!stored) { stored = document.documentElement.getAttribute("data-theme"); }
   if (!stored && window.matchMedia
       && window.matchMedia("(prefers-color-scheme: dark)").matches) {
     stored = "dark";

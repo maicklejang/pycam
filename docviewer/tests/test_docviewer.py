@@ -277,7 +277,7 @@ class ServerTest(RendererTestCase):
         for route in ("/phone", "/standalone"):
             with self.get(route) as response:
                 body = response.read().decode("utf-8")
-            self.assertIn("문서 뷰어 (휴대폰용)", body)
+            self.assertIn("휴대폰 문서 뷰어", body)
         with self.get("/static/viewer.js") as response:
             self.assertIn("parseDocx", response.read().decode("utf-8"))
         with self.get("/manifest.webmanifest") as response:
