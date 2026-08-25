@@ -174,6 +174,10 @@ trimming mistakes.
 * Large files are parsed in a Web Worker; the mesh is capped at 4 M triangles and the
   wireframe overlay at 400 k triangles to stay within phone memory.
 * Assembly colours and STEP presentation styles are not read - everything renders in a
-  single material.
+  single material.  Back faces are shaded almost like front faces on purpose: real
+  assemblies contain parts wound the other way round, and a contrasting back face only
+  turned those into a differently coloured blob.
+* The service worker serves from the network first and keeps its cache as the offline
+  copy, so a new release shows up on the next start rather than the one after it.
 * iOS Safari supports installation and offline use, but not the Web Share Target, so on iOS
   open files through the picker rather than sharing them into the app.

@@ -277,13 +277,18 @@
     ].join("\n");
 
     /* Palettes.  The light one is the default: a dark viewport hides the very
-     * shading it is supposed to show, especially on a phone in daylight. */
+     * shading it is supposed to show, especially on a phone in daylight.
+     *
+     * `backface` is only slightly darker than `material` on purpose.  Real STEP
+     * assemblies routinely contain parts whose faces are wound the other way; a
+     * contrasting back face colour turned those parts into a different-coloured
+     * blob rather than telling anyone anything useful. */
     var THEMES = {
         light: {
             backgroundTop: [0.95, 0.96, 0.97],
             backgroundBottom: [0.72, 0.75, 0.79],
             material: [0.60, 0.65, 0.72],
-            backface: [0.55, 0.40, 0.38],
+            backface: [0.50, 0.54, 0.60],
             cut: [0.44, 0.49, 0.57],
             grid: [0.58, 0.61, 0.66],
             outline: [0.10, 0.12, 0.16],
@@ -296,7 +301,7 @@
             backgroundTop: [0.086, 0.098, 0.13],
             backgroundBottom: [0.043, 0.051, 0.07],
             material: [0.62, 0.68, 0.78],
-            backface: [0.42, 0.30, 0.34],
+            backface: [0.50, 0.55, 0.64],
             cut: [0.50, 0.56, 0.66],
             grid: [0.16, 0.19, 0.25],
             outline: [0.05, 0.07, 0.11],

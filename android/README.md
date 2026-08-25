@@ -12,7 +12,19 @@ project only adds the Android shell around it.
 Download the APK from the **android-latest** pre-release on the repository's
 Releases page (or from the "Build Android app" workflow run) and open it on the
 phone.  Android will ask for permission to install an app from an unknown source,
-because the build is signed with Gradle's debug key rather than a store key.
+because the build is self-signed rather than signed with a store key.
+
+### Signing
+
+`sideload.keystore` is committed deliberately.  Gradle's default debug keystore is
+generated per machine, so two CI runs signed two APKs with two different keys and
+Android rejected the second one with *"the package conflicts with an existing
+package"*.  A fixed key gives every build one identity, so updates install over the
+previous version.  It is a throwaway self-signed key with the password `android` -
+it is not a secret and makes no authenticity claim.
+
+`versionCode` follows the CI run number, so each published APK is an upgrade of the
+one before it.
 
 ## What it does
 

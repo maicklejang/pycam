@@ -3,8 +3,9 @@ name: Build Android app
 # Builds the APK wrapper around mobile/ and publishes it as a pre-release, so it
 # can be installed on a phone straight from the download link.
 #
-# The APK is signed with Gradle's debug key: enough to sideload, not something to
-# put on an app store.
+# The APK is signed with the committed sideload key (android/sideload.keystore) so
+# that every build keeps the same signature and installs as an update.  It is a
+# throwaway self-signed key, not a store key.
 
 on:
   push:
@@ -36,6 +37,8 @@ jobs:
           gradle-version: '8.7'
 
       - name: Build the APK
+        env:
+          PYCAM_BUILD_NUMBER: ${{ github.run_number }}
         run: gradle --project-dir android --no-daemon assembleDebug
 
       - name: Rename the APK

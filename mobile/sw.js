@@ -3,7 +3,7 @@
  * Copyright 2026 The PyCAM contributors
  * Licensed under the GNU General Public License v3 or later (see COPYING.TXT).
  */
-var CACHE = "pycam-viewer-v1";
+var CACHE = "pycam-viewer-v2";
 var SHARE_CACHE = "pycam-share";
 
 var SHELL = [
@@ -74,29 +74,19 @@ self.addEventListener("fetch", function (event) {
         return;
     }
 
-    event.respondWith(caches.match(event.request).then(function (cached) {
-        if (cached) {
-            // Refresh in the background so updates land on the next start.
-            event.waitUntil(fetch(event.request).then(function (response) {
-                if (response && response.ok) {
-                    return caches.open(CACHE).then(function (cache) {
-                        return cache.put(event.request, response.clone());
-                    });
-                }
-                return null;
-            }).catch(function () {}));
-            return cached;
+    // Network first: a cache-first shell kept handing out the previous release
+    // until the app was started twice.  The cache stays as the offline copy.
+    event.respondWith(fetch(event.request).then(function (response) {
+        if (response && response.ok && response.type === "basic") {
+            var copy = response.clone();
+            caches.open(CACHE).then(function (cache) {
+                cache.put(event.request, copy);
+            });
         }
-        return fetch(event.request).then(function (response) {
-            if (response && response.ok && response.type === "basic") {
-                var copy = response.clone();
-                caches.open(CACHE).then(function (cache) {
-                    cache.put(event.request, copy);
-                });
-            }
-            return response;
-        }).catch(function () {
-            return caches.match("index.html");
+        return response;
+    }).catch(function () {
+        return caches.match(event.request).then(function (cached) {
+            return cached || caches.match("index.html");
         });
     }));
 });

@@ -20,6 +20,9 @@ tasks.register('syncWebApp', Sync) {
     into webAppAssets
 }
 
+// CI passes its run number so every published APK is an upgrade of the last one.
+def buildNumber = (System.getenv("PYCAM_BUILD_NUMBER") ?: "1") as int
+
 android {
     namespace 'net.sourceforge.pycam.viewer'
     compileSdk 34
@@ -28,8 +31,22 @@ android {
         applicationId "net.sourceforge.pycam.viewer"
         minSdk 24
         targetSdk 34
-        versionCode 2
-        versionName "1.1"
+        versionCode 100 + buildNumber
+        versionName "1.2." + buildNumber
+    }
+
+    /* Gradle's default debug key is generated per machine, so two CI runs produced
+     * two different signatures and Android refused the update with "package
+     * conflicts with an existing package".  This throwaway key is committed on
+     * purpose: it is not a secret and makes no authenticity claim, it just gives
+     * the sideload builds one stable identity so updates install over each other. */
+    signingConfigs {
+        sideload {
+            storeFile file("${rootProject.projectDir}/sideload.keystore")
+            storePassword "android"
+            keyAlias "pycamviewer"
+            keyPassword "android"
+        }
     }
 
     sourceSets {
@@ -39,8 +56,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.sideload
+        }
         release {
             minifyEnabled false
+            signingConfig signingConfigs.sideload
         }
     }
 
