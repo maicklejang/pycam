@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.widget.doAfterTextChanged
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.snackbar.Snackbar
 import org.pycam.bizcard.databinding.ActivityMainBinding
@@ -19,6 +20,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var store: CardStore
     private lateinit var adapter: CardAdapter
+
+    /** 저장된 전체 목록. 화면에는 검색어로 걸러낸 결과만 보여준다. */
+    private var allCards: List<BizCard> = emptyList()
 
     private val requestCamera = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -68,6 +72,8 @@ class MainActivity : AppCompatActivity() {
         binding.cardList.layoutManager = LinearLayoutManager(this)
         binding.cardList.adapter = adapter
 
+        binding.searchInput.doAfterTextChanged { applyFilter() }
+
         binding.captureButton.setOnClickListener { startCapture() }
         binding.pickButton.setOnClickListener {
             pickLauncher.launch(
@@ -82,9 +88,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
-        val cards = store.load()
-        adapter.submit(cards)
-        binding.emptyView.visibility = if (cards.isEmpty()) View.VISIBLE else View.GONE
+        allCards = store.load()
+        applyFilter()
+    }
+
+    /** 검색어를 적용해 목록·건수·빈 화면 안내를 갱신한다. */
+    private fun applyFilter() {
+        val query = binding.searchInput.text?.toString().orEmpty()
+        val searching = query.isNotBlank()
+        val visible = if (searching) CardSearch.filter(allCards, query) else allCards
+
+        adapter.submit(visible)
+        binding.searchLayout.visibility = if (allCards.isEmpty()) View.GONE else View.VISIBLE
+        binding.resultCount.visibility =
+            if (visible.isEmpty() || allCards.isEmpty()) View.GONE else View.VISIBLE
+        binding.resultCount.text = getString(R.string.search_result_count, visible.size)
+
+        binding.emptyView.visibility = if (visible.isEmpty()) View.VISIBLE else View.GONE
+        binding.emptyTitle.setText(
+            if (searching) R.string.search_empty_title else R.string.empty_title
+        )
+        binding.emptyMessage.setText(
+            if (searching) R.string.search_empty_message else R.string.empty_message
+        )
     }
 
     private fun startCapture() {

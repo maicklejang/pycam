@@ -36,6 +36,15 @@
                 android:contentDescription="@string/card_image"
                 android:scaleType="fitCenter" />
 
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/cropSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:checked="true"
+                android:text="@string/crop_to_card"
+                android:visibility="gone" />
+
             <LinearLayout
                 android:id="@+id/progressRow"
                 android:layout_width="match_parent"

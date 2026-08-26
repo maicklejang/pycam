@@ -29,6 +29,12 @@ class ReviewActivity : AppCompatActivity() {
     private var rawText: String = ""
     private var savedAt: Long = 0L
 
+    /** OCR 로 추정한 명함 영역. 이미 잘려 있거나 잘라낼 것이 없으면 null. */
+    private var pendingCrop: CardCrop.Box? = null
+    private var sourceWidth: Int = 0
+    private var sourceHeight: Int = 0
+    private var alreadyCropped: Boolean = false
+
     private val requestContacts = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
@@ -54,17 +60,20 @@ class ReviewActivity : AppCompatActivity() {
         }
 
         binding.toolbar.setNavigationOnClickListener { finish() }
-        binding.cardImage.setImageBitmap(ImageUtils.decodeScaled(imageFile, PREVIEW_SIZE))
+        updateImagePreview()
 
         binding.saveButton.setOnClickListener { onSaveClicked() }
         binding.rescanButton.setOnClickListener { recognize(force = true) }
         binding.rawTextButton.setOnClickListener { showRawText() }
         binding.shareButton.setOnClickListener { shareVCard() }
 
+        binding.cropSwitch.setOnCheckedChangeListener { _, _ -> updateImagePreview() }
+
         val existing = store.load().firstOrNull { it.imageName == imageName }
         if (existing != null) {
             savedAt = existing.savedAt
             rawText = existing.rawText
+            alreadyCropped = existing.cropped
             bind(existing)
             showFields()
         } else {
@@ -84,7 +93,7 @@ class ReviewActivity : AppCompatActivity() {
         binding.progressRow.visibility = View.VISIBLE
 
         lifecycleScope.launch {
-            val lines = try {
+            val result = try {
                 withContext(Dispatchers.Default) {
                     recognizer.recognize(this@ReviewActivity, android.net.Uri.fromFile(imageFile))
                 }
@@ -98,14 +107,47 @@ class ReviewActivity : AppCompatActivity() {
             binding.progressRow.visibility = View.GONE
             showFields()
 
-            if (lines.isEmpty()) {
+            if (result.lines.isEmpty()) {
                 notify(getString(R.string.recognize_empty))
                 return@launch
             }
 
-            rawText = lines.joinToString("\n")
-            bind(BizCardParser.parseLines(lines))
+            sourceWidth = result.imageWidth
+            sourceHeight = result.imageHeight
+            pendingCrop = if (alreadyCropped) {
+                null
+            } else {
+                CardCrop.detect(result.boxes, result.imageWidth, result.imageHeight)
+            }
+            updateCropControls()
+
+            rawText = result.lines.joinToString("\n")
+            bind(BizCardParser.parseLines(result.lines))
         }
+    }
+
+    // ------------------------------------------------------------------ 명함 영역
+
+    private fun updateCropControls() {
+        val available = pendingCrop != null
+        binding.cropSwitch.visibility = if (available) View.VISIBLE else View.GONE
+        if (available) binding.cropSwitch.isChecked = true
+        updateImagePreview()
+    }
+
+    private fun cropEnabled(): Boolean =
+        pendingCrop != null && binding.cropSwitch.isChecked
+
+    /** 스위치 상태에 따라 원본 또는 명함 영역만 보여준다. */
+    private fun updateImagePreview() {
+        val box = pendingCrop
+        val bitmap = if (box != null && binding.cropSwitch.isChecked) {
+            ImageUtils.decodeCropped(imageFile, box, sourceWidth, sourceHeight, PREVIEW_SIZE)
+                ?: ImageUtils.decodeScaled(imageFile, PREVIEW_SIZE)
+        } else {
+            ImageUtils.decodeScaled(imageFile, PREVIEW_SIZE)
+        }
+        binding.cardImage.setImageBitmap(bitmap)
     }
 
     private fun showFields() {
@@ -168,18 +210,29 @@ class ReviewActivity : AppCompatActivity() {
         val card = collect()
         binding.saveButton.isEnabled = false
 
+        val cropBox = pendingCrop.takeIf { cropEnabled() }
+
         lifecycleScope.launch {
             val outcome = withContext(Dispatchers.IO) {
                 runCatching {
+                    // 명함 영역만 남기고 파일을 덮어쓴 뒤, 그 이미지를 연락처 사진으로 쓴다.
+                    val didCrop = cropBox != null &&
+                        ImageUtils.cropInPlace(imageFile, cropBox, sourceWidth, sourceHeight)
                     val photo = ImageUtils.toContactPhoto(imageFile)
-                    ContactWriter.saveOrUpdate(this@ReviewActivity, card, photo)
+                    didCrop to ContactWriter.saveOrUpdate(this@ReviewActivity, card, photo)
                 }
             }
             binding.saveButton.isEnabled = true
 
-            outcome.onSuccess { result ->
+            outcome.onSuccess { (didCrop, result) ->
+                if (didCrop) {
+                    alreadyCropped = true
+                    pendingCrop = null
+                    binding.cropSwitch.visibility = View.GONE
+                    updateImagePreview()
+                }
                 savedAt = System.currentTimeMillis()
-                store.save(card.copy(savedAt = savedAt))
+                store.save(card.copy(savedAt = savedAt, cropped = alreadyCropped))
                 setResult(Activity.RESULT_OK)
                 notify(
                     when {

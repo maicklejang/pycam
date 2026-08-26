@@ -6,6 +6,7 @@ import android.graphics.Matrix
 import androidx.exifinterface.media.ExifInterface
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import kotlin.math.max
 
 object ImageUtils {
@@ -80,6 +81,63 @@ object ImageUtils {
         }
     }
 
+    /**
+     * [box] 로 잘라낸 미리보기 비트맵. [box] 는 [sourceWidth] x [sourceHeight] 좌표계
+     * (= OCR 이 쓴 좌표계)의 값이며, 실제 디코딩 크기에 맞춰 비례 변환한다.
+     */
+    fun decodeCropped(file: File, box: CardCrop.Box, sourceWidth: Int, sourceHeight: Int, maxSize: Int): Bitmap? {
+        val bitmap = decodeScaled(file, maxSize) ?: return null
+        val cropped = crop(bitmap, box, sourceWidth, sourceHeight)
+        if (cropped == null) {
+            bitmap.recycle()
+            return null
+        }
+        if (cropped != bitmap) bitmap.recycle()
+        return cropped
+    }
+
+    /**
+     * 명함 영역만 남기고 [file] 을 덮어쓴다. 성공하면 true.
+     * 새로 쓴 JPEG 에는 회전 정보가 없으므로 EXIF 는 남기지 않는다.
+     */
+    fun cropInPlace(file: File, box: CardCrop.Box, sourceWidth: Int, sourceHeight: Int): Boolean {
+        val cropped = decodeCropped(file, box, sourceWidth, sourceHeight, CROP_OUTPUT_SIZE) ?: return false
+        return try {
+            FileOutputStream(file).use { output ->
+                cropped.compress(Bitmap.CompressFormat.JPEG, CROP_QUALITY, output)
+            }
+        } catch (e: Exception) {
+            false
+        } finally {
+            cropped.recycle()
+        }
+    }
+
+    private fun crop(bitmap: Bitmap, box: CardCrop.Box, sourceWidth: Int, sourceHeight: Int): Bitmap? {
+        if (sourceWidth <= 0 || sourceHeight <= 0) return null
+        val scaleX = bitmap.width.toFloat() / sourceWidth
+        val scaleY = bitmap.height.toFloat() / sourceHeight
+
+        val left = (box.left * scaleX).toInt().coerceIn(0, bitmap.width - 1)
+        val top = (box.top * scaleY).toInt().coerceIn(0, bitmap.height - 1)
+        val right = (box.right * scaleX).toInt().coerceIn(left + 1, bitmap.width)
+        val bottom = (box.bottom * scaleY).toInt().coerceIn(top + 1, bitmap.height)
+
+        val width = right - left
+        val height = bottom - top
+        if (width < MIN_CROP_PIXELS || height < MIN_CROP_PIXELS) return null
+        if (width == bitmap.width && height == bitmap.height) return bitmap
+
+        return try {
+            Bitmap.createBitmap(bitmap, left, top, width, height)
+        } catch (e: IllegalArgumentException) {
+            null
+        }
+    }
+
+    private const val CROP_OUTPUT_SIZE = 2048
+    private const val CROP_QUALITY = 92
+    private const val MIN_CROP_PIXELS = 32
     private const val CONTACT_PHOTO_SIZE = 512
     private const val MAX_CONTACT_PHOTO_BYTES = 700 * 1024
 }

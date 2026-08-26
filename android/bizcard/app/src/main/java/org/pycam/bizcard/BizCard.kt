@@ -16,6 +16,8 @@ data class BizCard(
     val rawText: String = "",
     /** 촬영한 명함 이미지 파일 이름(앱 내부 저장소 기준). */
     val imageName: String = "",
+    /** 이미지가 이미 명함 영역만 남기고 잘린 상태인지. 두 번 잘리는 것을 막는다. */
+    val cropped: Boolean = false,
     val savedAt: Long = 0L
 ) {
     val isEmpty: Boolean

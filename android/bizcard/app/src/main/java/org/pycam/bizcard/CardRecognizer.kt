@@ -16,17 +16,42 @@ import kotlin.coroutines.resumeWithException
  */
 class CardRecognizer {
 
+    /**
+     * [lines] 는 읽기 순서로 정렬한 글줄, [boxes] 는 명함 영역을 잡는 데 쓰는 글자 상자,
+     * [imageWidth]/[imageHeight] 는 상자와 같은 좌표계(EXIF 회전 반영)의 이미지 크기다.
+     */
+    data class Result(
+        val lines: List<String>,
+        val boxes: List<CardCrop.Box>,
+        val imageWidth: Int,
+        val imageHeight: Int
+    )
+
     private val recognizer = TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
 
-    suspend fun recognize(context: Context, uri: Uri): List<String> {
+    suspend fun recognize(context: Context, uri: Uri): Result {
         val image = InputImage.fromFilePath(context, uri)
         val text = suspendCancellableCoroutine<Text> { continuation ->
             recognizer.process(image)
                 .addOnSuccessListener { result -> continuation.resume(result) }
                 .addOnFailureListener { error -> continuation.resumeWithException(error) }
         }
-        return toReadingOrderLines(text)
+        // InputImage 의 width/height 는 회전이 적용된 뒤의 값이라 boundingBox 와 좌표계가 같다.
+        return Result(
+            lines = toReadingOrderLines(text),
+            boxes = toBoxes(text),
+            imageWidth = image.width,
+            imageHeight = image.height
+        )
     }
+
+    private fun toBoxes(text: Text): List<CardCrop.Box> = text.textBlocks
+        .flatMap { block -> block.lines }
+        .mapNotNull { line ->
+            val box = line.boundingBox ?: return@mapNotNull null
+            if (line.text.isBlank()) null
+            else CardCrop.Box(box.left, box.top, box.right, box.bottom)
+        }
 
     fun close() = recognizer.close()
 

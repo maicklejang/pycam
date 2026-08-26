@@ -61,6 +61,7 @@ class CardStore(context: Context) {
         put("note", card.note)
         put("rawText", card.rawText)
         put("imageName", card.imageName)
+        put("cropped", card.cropped)
         put("savedAt", card.savedAt)
     }
 
@@ -78,6 +79,7 @@ class CardStore(context: Context) {
         note = json.optString("note"),
         rawText = json.optString("rawText"),
         imageName = json.optString("imageName"),
+        cropped = json.optBoolean("cropped"),
         savedAt = json.optLong("savedAt")
     )
 

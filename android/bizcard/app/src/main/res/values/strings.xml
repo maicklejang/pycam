@@ -33,6 +33,7 @@
     <string name="recognize_failed">텍스트를 인식하지 못했습니다. 다시 촬영해 주세요.</string>
     <string name="recognize_empty">읽을 수 있는 글자를 찾지 못했습니다. 조명을 밝게 하고 다시 촬영해 보세요.</string>
     <string name="card_image">명함 사진</string>
+    <string name="crop_to_card">명함 영역만 저장</string>
     <string name="raw_text_title">인식 원문</string>
 
     <string name="saved_new">새 연락처로 저장했습니다.</string>
@@ -45,4 +46,9 @@
     <string name="permission_contacts_required">연락처에 저장하려면 주소록 권한이 필요합니다.</string>
     <string name="capture_failed">촬영에 실패했습니다.</string>
     <string name="capture_hint">명함을 안내선 안에 맞춰 주세요</string>
+
+    <string name="search_hint">이름·회사·번호·초성으로 검색</string>
+    <string name="search_empty_title">검색 결과가 없습니다</string>
+    <string name="search_empty_message">다른 낱말로 찾아 보세요. 이름, 회사, 부서, 직함, 전화번호, 이메일, 주소, 인식 원문까지 검색합니다.</string>
+    <string name="search_result_count">%1$d개 명함</string>
 </resources>
