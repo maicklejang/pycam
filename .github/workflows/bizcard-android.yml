@@ -1,0 +1,74 @@
+name: BizCard Android APK
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "android/bizcard/**"
+      - ".github/workflows/bizcard-android.yml"
+  pull_request:
+    paths:
+      - "android/bizcard/**"
+      - ".github/workflows/bizcard-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build installable APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android/bizcard
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run parser unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon assembleDebug
+
+      # 서명 키가 없으면 unsigned APK 가 나온다. 설치용 결과물은 debug APK 이므로
+      # 릴리스 빌드가 실패해도 워크플로 전체를 막지 않는다.
+      - name: Build release APK
+        continue-on-error: true
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Rename artifacts
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk out/bizcard-scanner-debug.apk
+          release_apk="$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)"
+          if [ -n "$release_apk" ]; then
+            cp "$release_apk" "out/bizcard-scanner-release-$(basename "$release_apk")"
+          fi
+          ls -la out
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: bizcard-scanner-apk
+          path: android/bizcard/out/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bizcard-unit-test-report
+          path: android/bizcard/app/build/reports/tests/
+          if-no-files-found: ignore
