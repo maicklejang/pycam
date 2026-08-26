@@ -1,0 +1,4 @@
+// Root build file for the PyCAM Viewer Android wrapper.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}
