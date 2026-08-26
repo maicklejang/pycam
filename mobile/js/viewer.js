@@ -168,6 +168,32 @@
         return (u / wb) / denominator;
     }
 
+    /* Near and far planes for a camera `distance` away from a model of radius
+     * `radius`.
+     *
+     * This used to put the near plane at radius/1000 and the far plane twenty
+     * radii behind the model - a range of some 22000:1.  Desktop browsers hand
+     * out a 24 bit depth buffer and cope; plenty of Android WebViews give 16
+     * bits, where that range leaves a depth step of about 8% of the model, so
+     * back faces won the depth test and models showed their own dark insides.
+     *
+     * The planes are now kept just outside the model - the target can wander by
+     * up to a radius while panning, hence the factor of two - which keeps the
+     * ratio around 15:1 for a fitted view. */
+    function depthRange(distance, radius) {
+        radius = Math.max(radius, 1e-9);
+        // Only camera-relative floors: a radius-based one would push the near
+        // plane past the camera when zoomed deep into a very large model.
+        var near = Math.max(distance - radius * 2, distance * 0.02);
+        var far = distance + radius * 3;
+        if (!(far > near)) {
+            far = near * 10;
+        }
+        return {near: near, far: far};
+    }
+
+    P.depthRange = depthRange;
+
     P.pickMath = {
         rayTriangle: rayTriangle,
         closestOnSegment2D: closestOnSegment2D,
@@ -497,8 +523,7 @@
      * only where the stencil pass says we are inside the solid. */
     Viewer.prototype.buildSectionCap = function () {
         if (this.buffers.cap) {
-            this.gl.deleteBuffer(this.buffers.cap.position);
-            this.gl.deleteBuffer(this.buffers.cap.normal);
+            this.dropBuffers(this.buffers.cap);
             this.buffers.cap = null;
         }
         var plane = this.sectionPlane();
@@ -547,6 +572,15 @@
 
     /* --- buffer management ------------------------------------------------- */
 
+    /* WebGLRenderingContext.deleteBuffer throws on anything that is not a buffer
+     * handle, so never take a truthy field's word for it. */
+    function isBuffer(gl, value) {
+        if (!value) {
+            return false;
+        }
+        return typeof WebGLBuffer === "undefined" || value instanceof WebGLBuffer;
+    }
+
     Viewer.prototype.makeBuffer = function (data) {
         var gl = this.gl;
         var buffer = gl.createBuffer();
@@ -555,20 +589,23 @@
         return buffer;
     };
 
-    Viewer.prototype.dispose = function () {
+    /* Release the GL buffers an entry owns, and forget them, so a second call
+     * (or a field that only looks like a buffer) cannot reach deleteBuffer. */
+    Viewer.prototype.dropBuffers = function (entry) {
         var gl = this.gl;
-        var self = this;
-        function drop(entry) {
-            if (entry && entry.position) {
-                gl.deleteBuffer(entry.position);
-            }
-            if (entry && entry.normal) {
-                gl.deleteBuffer(entry.normal);
-            }
-            if (entry && entry.color) {
-                gl.deleteBuffer(entry.color);
-            }
+        if (!entry) {
+            return;
         }
+        ["position", "normal", "color"].forEach(function (key) {
+            if (isBuffer(gl, entry[key])) {
+                gl.deleteBuffer(entry[key]);
+            }
+            entry[key] = null;
+        });
+    };
+
+    Viewer.prototype.dispose = function () {
+        var drop = this.dropBuffers.bind(this);
         drop(this.buffers.mesh);
         drop(this.buffers.grid);
         drop(this.buffers.axes);
@@ -600,7 +637,7 @@
             self.buffers.edges.push({
                 position: self.makeBuffer(layer.positions),
                 count: layer.positions.length / 3,
-                color: layer.color || [0.9, 0.9, 0.9],
+                tint: layer.color || [0.9, 0.9, 0.9],
                 visible: layer.visible !== false,
                 index: index
             });
@@ -705,7 +742,7 @@
             data.push.apply(data, corners[pair[1]]);
         });
         if (this.buffers.bbox) {
-            this.gl.deleteBuffer(this.buffers.bbox.position);
+            this.dropBuffers(this.buffers.bbox);
         }
         this.buffers.bbox = {position: this.makeBuffer(new Float32Array(data)),
                              count: data.length / 3};
@@ -1137,7 +1174,7 @@
 
     Viewer.prototype.buildMeasureBuffer = function () {
         if (this.buffers.measure) {
-            this.gl.deleteBuffer(this.buffers.measure.position);
+            this.dropBuffers(this.buffers.measure);
             this.buffers.measure = null;
         }
         var points = this.measure.points;
@@ -1194,15 +1231,14 @@
         }
 
         var aspect = width / Math.max(height, 1);
-        var near = Math.max(this.camera.distance - this.modelRadius * 6, this.modelRadius * 1e-3);
-        var far = this.camera.distance + this.modelRadius * 20;
+        var range = depthRange(this.camera.distance, this.modelRadius);
         if (this.options.projection === "orthographic") {
             var halfHeight = this.camera.distance * Math.tan(this.camera.fov / 2);
             M4.ortho(this.proj, -halfHeight * aspect, halfHeight * aspect,
                      -halfHeight, halfHeight,
-                     -this.modelRadius * 40, this.modelRadius * 40 + this.camera.distance);
+                     -this.modelRadius * 3, this.camera.distance + this.modelRadius * 3);
         } else {
-            M4.perspective(this.proj, this.camera.fov, aspect, near, far);
+            M4.perspective(this.proj, this.camera.fov, aspect, range.near, range.far);
         }
         M4.lookAt(this.view, this.eye(), this.camera.target, [0, 0, 1]);
         M4.multiply(this.mvp, this.proj, this.view);
@@ -1237,7 +1273,7 @@
                 }
                 var color = this.buffers.mesh
                     ? this.theme.outline        // plain outlines on top of a shaded solid
-                    : this.themedLineColor(layer.color);
+                    : this.themedLineColor(layer.tint);
                 this.drawLines(layer, color, 1, layer.count > 400000 ? 1 : 2, 0.0008);
             }
         }

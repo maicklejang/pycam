@@ -98,6 +98,15 @@ float colour would and keeps a large assembly inside a phone's memory.  STEP pre
 styles (the colours a CAD system stored in the file) are still not read - these are the
 viewer's own, assigned so that parts can be told apart.
 
+## Depth precision
+
+Phones commonly give WebGL a 16-bit depth buffer, and a depth buffer's resolution
+collapses towards the far plane in proportion to `far / near`.  The near and far planes are
+therefore fitted to the model each frame - roughly two radii in front of the camera and
+three behind it - instead of being fixed at a tiny near value.  On a large assembly that is
+the difference between a ratio of 22000:1 and one of about 14:1, and it is what stops back
+faces from punching through front faces and making parts look shadowed from the wrong side.
+
 ## Background
 
 The viewport is a light grey gradient by default, which is what CAD viewers use and what

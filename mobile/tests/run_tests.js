@@ -361,6 +361,55 @@ test("matrix inverse round-trips", function () {
            "a singular matrix returns null");
 });
 
+console.log("\ndepth range");
+
+test("near and far stay close to the model", function () {
+    // A 16 bit depth buffer - what plenty of Android WebViews hand out - resolves
+    // about z^2 / (near * 65536).  Anything coarser than a thousandth of the model
+    // lets a back face win the depth test, which is what made parts look hollow.
+    var distances = [1.2, 2.9, 5];       // as multiples of the radius: fitted views
+    [1, 1000, 0.01].forEach(function (radius) {
+        distances.forEach(function (factor) {
+            var distance = radius * factor;
+            var range = P.depthRange(distance, radius);
+            assert(range.near > 0, "positive near plane");
+            assert(range.far > range.near, "far beyond near");
+            assert(range.far >= distance + radius,
+                   "the far side of the model is inside the frustum");
+            var nearestPoint = distance - radius;
+            assert(range.near <= Math.max(nearestPoint, distance * 0.02) + 1e-9,
+                   "the near plane does not clip the model");
+            var step = (distance * distance) / (range.near * 65536);
+            assert(step < radius / 500,
+                   "depth step " + step.toExponential(2) + " is fine enough for a "
+                   + "radius of " + radius + " at distance " + distance);
+        });
+    });
+});
+
+test("extreme zoom levels still produce a usable frustum", function () {
+    // Inside the model, and zoomed far out: correctness only, precision there is
+    // beyond saving and beyond noticing.
+    [[0.3, 1], [400, 1], [2.4, 1e6]].forEach(function (pair) {
+        var distance = pair[0], radius = pair[1];
+        var range = P.depthRange(distance, radius);
+        assert(range.near > 0 && range.far > range.near,
+               "sane planes at distance " + distance + ", radius " + radius);
+        assert(range.near < distance,
+               "the near plane stays in front of the camera");
+        assert(range.far >= distance + radius, "the model fits inside the frustum");
+    });
+});
+
+test("a fitted view keeps the whole model in front of the near plane", function () {
+    var radius = 1;
+    var distance = radius / Math.sin(Math.PI / 8) * 1.12;   // what fit() computes
+    var range = P.depthRange(distance, radius);
+    assert(range.near <= distance - radius,
+           "nothing is clipped: near " + range.near.toFixed(3)
+           + " vs nearest point " + (distance - radius).toFixed(3));
+});
+
 console.log("\nerrors");
 
 test("unknown format is rejected", function () {
