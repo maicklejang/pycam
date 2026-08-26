@@ -59,8 +59,8 @@ MODULES = ("__init__.py",
            "Photogrammetry/synthetic.py")
 
 
-# the version of the APK when the repository carries no release tag
-FALLBACK_VERSION = "0.7.0.dev"
+# the version of the APK when the repository tells us nothing
+FALLBACK_VERSION = "0.0.1"
 
 
 def _git(*arguments):
@@ -69,17 +69,52 @@ def _git(*arguments):
     return output.decode("ascii", "replace").strip()
 
 
+def _numeric_version(described):
+    """ turn the output of "git describe" into a version of numbers only
+
+    Android derives the "versionCode" of the package from the version, and
+    python-for-android does that by reading every part between the dots as a number.  A
+    version like "0.6.2-599-g5e4699c9" therefore has to become "0.6.2.599".
+    """
+    parts = str(described).lstrip("v").split("-")
+    numbers = [part for part in parts[0].split(".") if part.isdigit()]
+    if len(parts) > 1 and parts[1].isdigit():
+        # the number of commits since the tag
+        numbers.append(parts[1])
+    return ".".join(numbers)
+
+
 def _version():
     """ ask git for the version - the APK has no repository to look at """
+    candidates = []
     try:
-        described = _git("describe", "--tags", "--dirty", "--match", "v*")
-        return described.lstrip("v").replace("-", ".")
+        candidates.append(_numeric_version(_git("describe", "--tags", "--match", "v*")))
     except (OSError, subprocess.CalledProcessError):
         pass
     try:
-        return "{}.{}".format(FALLBACK_VERSION, _git("rev-parse", "--short", "HEAD"))
+        candidates.append("0.0." + _git("rev-list", "--count", "HEAD"))
     except (OSError, subprocess.CalledProcessError):
-        return FALLBACK_VERSION
+        pass
+    for candidate in candidates:
+        if is_valid_version(candidate):
+            return candidate
+    return FALLBACK_VERSION
+
+
+def is_valid_version(version):
+    """ check whether Android can derive a "versionCode" from this version """
+    parts = str(version).split(".")
+    if not parts or not all(part.isdigit() for part in parts):
+        return False
+    return android_version_code(version) < 2 ** 31
+
+
+def android_version_code(version, min_sdk=24):
+    """ the "versionCode" that python-for-android computes from a version """
+    code = 0
+    for part in str(version).split("."):
+        code = code * 100 + int(part)
+    return int("10{}{}".format(min_sdk, code))
 
 
 def copy_modules():
@@ -91,8 +126,12 @@ def copy_modules():
         destination = os.path.join(TARGET_DIR, module)
         os.makedirs(os.path.dirname(destination), exist_ok=True)
         shutil.copyfile(source, destination)
+    version = _version()
+    if not is_valid_version(version):
+        raise SystemExit("the version '{}' cannot be used for an APK: Android needs numbers "
+                         "separated by dots".format(version))
     with open(os.path.join(TARGET_DIR, "Version.py"), "w") as out_file:
-        out_file.write('VERSION = "{}"\n'.format(_version()))
+        out_file.write('VERSION = "{}"\n'.format(version))
     return len(MODULES) + 1
 
 

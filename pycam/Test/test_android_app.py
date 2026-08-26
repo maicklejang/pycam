@@ -117,6 +117,20 @@ class TestAppSupport(pycam.Test.PycamTestCase):
             for directory in (first, second):
                 os.rmdir(directory)
 
+    def test_the_version_can_be_used_for_an_apk(self):
+        """ Android derives its "versionCode" from the version - it has to be numbers only """
+        import prepare_package
+        version = prepare_package._version()
+        self.assertTrue(prepare_package.is_valid_version(version), version)
+        self.assertTrue(all(part.isdigit() for part in version.split(".")), version)
+        # "git describe" adds the number of commits and the hash - the hash has to go
+        self.assertEqual(prepare_package._numeric_version("v0.6.2-599-g5e4699c9"), "0.6.2.599")
+        self.assertEqual(prepare_package._numeric_version("v0.6.2-599-g5e4699c9-dirty"),
+                         "0.6.2.599")
+        self.assertEqual(prepare_package._numeric_version("v0.6.2"), "0.6.2")
+        self.assertFalse(prepare_package.is_valid_version("0.7.0.dev"))
+        self.assertLess(prepare_package.android_version_code("0.6.2.599"), 2 ** 31)
+
     def test_the_packaged_modules_are_complete(self):
         """ "prepare_package.py" has to know every module that the application imports
 
