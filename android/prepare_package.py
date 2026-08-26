@@ -31,6 +31,7 @@ of the APK.
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -95,8 +96,19 @@ def copy_modules():
     return len(MODULES) + 1
 
 
+def _missing_module(text):
+    """ return the name of the module that an ImportError complains about """
+    match = re.search(r"No module named '([^']+)'", text)
+    return match.group(1) if match else None
+
+
 def check_modules():
-    """ verify that the copied modules can be imported without the repository """
+    """ verify that the copied modules are complete
+
+    The copy is imported in a separate process.  A missing third party module (numpy for
+    example) is not a packaging problem: those are installed into the APK by buildozer and
+    they do not have to be present on the machine that builds the APK.
+    """
     missing = [module for module in MODULES
                if not os.path.isfile(os.path.join(TARGET_DIR, module))]
     if missing:
@@ -104,10 +116,14 @@ def check_modules():
     result = subprocess.run((sys.executable, "-c",
                              "import pycam.Photogrammetry as p; print(p.__file__)"),
                             cwd=BASE_DIR, capture_output=True)
-    if result.returncode != 0:
-        raise SystemExit("the copied modules cannot be imported:\n{}"
-                         .format(result.stderr.decode("utf-8", "replace")))
-    return result.stdout.decode("utf-8", "replace").strip()
+    if result.returncode == 0:
+        return "imported {}".format(result.stdout.decode("utf-8", "replace").strip())
+    error = result.stderr.decode("utf-8", "replace")
+    blocked = _missing_module(error)
+    if blocked and not blocked.split(".")[0] == "pycam":
+        return ("all files are present - the import was not tried out, since '{}' is not "
+                "installed here (buildozer adds it to the APK)".format(blocked))
+    raise SystemExit("the copied modules cannot be imported:\n{}".format(error))
 
 
 def main():

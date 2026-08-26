@@ -45,6 +45,10 @@ buildozer android debug deploy run     # build, install via USB and start
 directory is generated - do not edit it).  Everything else stays outside of the APK, so the
 GTK interface and the toolpath generation of PyCAM are not part of the app.
 
+The APK is built for `arm64-v8a`, which covers every phone of the last ten years.  Add
+`armeabi-v7a` to `android.archs` in `buildozer.spec` for older devices - that doubles the
+build time, since Python and numpy are compiled once per architecture.
+
 ### installing the APK
 
 Copy the file onto the phone and open it.  Android asks whether apps from this source may be

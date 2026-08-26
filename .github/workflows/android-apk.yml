@@ -31,7 +31,17 @@ jobs:
             autoconf automake libtool pkg-config zlib1g-dev libncurses-dev libffi-dev \
             libssl-dev cmake ccache git zip unzip openjdk-17-jdk
           python -m pip install --upgrade pip
-          pip install "buildozer==1.5.0" "cython==0.29.36" virtualenv
+          # numpy lets "prepare_package.py" verify the collected modules by importing them
+          pip install "buildozer==1.5.0" "cython==0.29.36" virtualenv numpy
+
+      # the Android build tools need Java 17 - the default of the runner may be another one
+      - name: Select Java 17
+        run: |
+          JAVA_17="${JAVA_HOME_17_X64:-/usr/lib/jvm/java-17-openjdk-amd64}"
+          test -x "$JAVA_17/bin/java"
+          echo "JAVA_HOME=$JAVA_17" >> "$GITHUB_ENV"
+          echo "$JAVA_17/bin" >> "$GITHUB_PATH"
+          "$JAVA_17/bin/java" -version
 
       - name: Collect the modules of PyCAM
         run: python3 android/prepare_package.py

@@ -30,7 +30,9 @@ fullscreen = 0
 android.permissions = CAMERA
 android.api = 34
 android.minapi = 24
-android.archs = arm64-v8a,armeabi-v7a
+# every architecture is built separately (Python and numpy are compiled for each of them),
+# so only the one that all current phones use is enabled - add "armeabi-v7a" for old devices
+android.archs = arm64-v8a
 android.allow_backup = True
 android.accept_sdk_license = True
 android.enable_androidx = True
