@@ -102,11 +102,28 @@ object ImageUtils {
      */
     fun cropInPlace(file: File, box: CardCrop.Box, sourceWidth: Int, sourceHeight: Int): Boolean {
         val cropped = decodeCropped(file, box, sourceWidth, sourceHeight, CROP_OUTPUT_SIZE) ?: return false
+
+        // 원본을 바로 열어 쓰면 압축이 실패했을 때 명함 사진이 사라진다.
+        // 임시 파일에 먼저 쓰고 성공한 경우에만 갈아 끼운다.
+        val temporary = File(file.parentFile, file.name + ".crop")
         return try {
-            FileOutputStream(file).use { output ->
+            val written = FileOutputStream(temporary).use { output ->
                 cropped.compress(Bitmap.CompressFormat.JPEG, CROP_QUALITY, output)
             }
+            if (!written || temporary.length() == 0L) {
+                temporary.delete()
+                return false
+            }
+            if (temporary.renameTo(file)) {
+                true
+            } else {
+                // 같은 디렉터리 안이라 보통 성공하지만, 실패하면 복사로 대체한다.
+                val copied = runCatching { temporary.copyTo(file, overwrite = true) }.isSuccess
+                temporary.delete()
+                copied
+            }
         } catch (e: Exception) {
+            temporary.delete()
             false
         } finally {
             cropped.recycle()

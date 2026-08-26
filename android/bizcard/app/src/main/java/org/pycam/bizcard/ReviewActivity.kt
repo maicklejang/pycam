@@ -131,8 +131,12 @@ class ReviewActivity : AppCompatActivity() {
     private fun updateCropControls() {
         val available = pendingCrop != null
         binding.cropSwitch.visibility = if (available) View.VISIBLE else View.GONE
-        if (available) binding.cropSwitch.isChecked = true
-        updateImagePreview()
+        if (available && !binding.cropSwitch.isChecked) {
+            // 상태가 바뀌면 리스너가 미리보기를 새로 그린다. 두 번 디코딩하지 않는다.
+            binding.cropSwitch.isChecked = true
+        } else {
+            updateImagePreview()
+        }
     }
 
     private fun cropEnabled(): Boolean =
