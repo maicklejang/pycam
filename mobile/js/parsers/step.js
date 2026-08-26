@@ -415,6 +415,8 @@
         this.model = model;
         this.positions = [];
         this.normals = [];
+        this.partIds = [];
+        this.currentPart = -1;
         this.edgeLines = [];
         this.bbox = P.emptyBBox();
         this.faceCount = 0;
@@ -910,9 +912,11 @@
 
     /* Each edge is visited once per adjacent face - keep only the first copy of
      * every edge within one placement of the shape. */
+    /* Every item of a shape representation is one solid, which is exactly the
+     * grouping a person means by "part". */
     Tessellator.prototype.setPlacement = function (xf) {
         this.currentXf = xf;
-        this.placement = (this.placement || 0) + 1;
+        this.currentPart += 1;
         this.seenEdges = new Set();
     };
 
@@ -945,6 +949,8 @@
         }
         this.positions.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
         this.normals.push(na[0], na[1], na[2], nb[0], nb[1], nb[2], nc[0], nc[1], nc[2]);
+        var part = Math.max(this.currentPart, 0);
+        this.partIds.push(part, part, part);
     };
 
     Tessellator.prototype.addFace = function (faceRef) {
@@ -1436,6 +1442,27 @@
         return names.length ? names[0] : null;
     }
 
+    /* Distinct but calm colours: the golden ratio spreads the hues so that even
+     * neighbouring parts differ, and low saturation keeps shading readable. */
+    function partColours(partIds, partCount) {
+        var palette = [];
+        for (var i = 0; i < partCount; i++) {
+            var rgb = P.hsvToRgb((i * 0.6180339887498949) % 1, 0.34, 0.88);
+            palette.push([Math.round(rgb[0] * 255), Math.round(rgb[1] * 255),
+                          Math.round(rgb[2] * 255)]);
+        }
+        // one byte per channel: a float colour per vertex would cost four times
+        // as much memory for no visible gain
+        var colors = new Uint8Array(partIds.length * 3);
+        for (var v = 0; v < partIds.length; v++) {
+            var colour = palette[partIds[v] % partCount];
+            colors[v * 3] = colour[0];
+            colors[v * 3 + 1] = colour[1];
+            colors[v * 3 + 2] = colour[2];
+        }
+        return colors;
+    }
+
     /* --- entry point --------------------------------------------------------- */
 
     P.parseSTEP = function (buffer, progress) {
@@ -1551,7 +1578,9 @@
         });
 
         var unit = findUnits(model);
+        var partCount = Math.max(tess.currentPart + 1, 1);
         var stats = [
+            ["Parts", partCount],
             ["Faces", tess.faceCount],
             ["Triangles", Math.floor(tess.positions.length / 9)],
             ["Entities", parsed.entities.size]
@@ -1569,12 +1598,15 @@
         var positions = new Float32Array(tess.positions);
         var normals = new Float32Array(tess.normals);
         P.bboxOf(positions, tess.bbox);
+        var colors = partCount > 1 ? partColours(tess.partIds, partCount) : null;
 
         return {
             format: "STEP",
             flavour: schema || "ISO-10303-21",
             kind: "3d",
-            mesh: positions.length ? {positions: positions, normals: normals} : null,
+            mesh: positions.length
+                ? {positions: positions, normals: normals, colors: colors}
+                : null,
             edges: tess.edgeLines.length ? [{
                 name: "Edges",
                 color: [0.09, 0.11, 0.16],

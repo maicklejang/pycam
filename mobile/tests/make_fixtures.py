@@ -34,6 +34,9 @@ class StepWriter:
                         % (self.point(origin), self.direction(axis), self.direction(ref)))
 
     def dump(self, path, shell_id):
+        self.dump_solids(path, [shell_id])
+
+    def dump_solids(self, path, shell_ids):
         context = self.add("(GEOMETRIC_REPRESENTATION_CONTEXT(3)"
                            "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#%d))"
                            "GLOBAL_UNIT_ASSIGNED_CONTEXT((#%d,#%d,#%d))"
@@ -45,9 +48,10 @@ class StepWriter:
         self.add("(NAMED_UNIT(*)SI_UNIT($,.STERADIAN.)SOLID_ANGLE_UNIT())")
         self.add("UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-07),#%d,"
                  "'distance_accuracy_value','')" % (self.counter - 2))
-        solid = self.add("MANIFOLD_SOLID_BREP('%s',#%d)" % (self.name, shell_id))
-        self.add("ADVANCED_BREP_SHAPE_REPRESENTATION('%s',(#%d),#%d)"
-                 % (self.name, solid, context))
+        solids = [self.add("MANIFOLD_SOLID_BREP('%s_%d',#%d)" % (self.name, index, shell))
+                  for index, shell in enumerate(shell_ids)]
+        self.add("ADVANCED_BREP_SHAPE_REPRESENTATION('%s',(%s),#%d)"
+                 % (self.name, ",".join("#%d" % s for s in solids), context))
 
         header = [
             "ISO-10303-21;",
@@ -267,6 +271,62 @@ def make_plate_with_hole(path, width=40.0, depth=30.0, thickness=5.0, radius=6.0
 
     shell = writer.add("CLOSED_SHELL('',(%s))" % ",".join("#%d" % f for f in faces))
     writer.dump(path, shell)
+    print("wrote", path)
+
+
+def make_two_parts(path):
+    """Two solids in one representation - the "parts" a person means in an assembly."""
+    writer = StepWriter("two_parts")
+
+    def box_shell(origin, size):
+        ox, oy, oz = origin
+        sx, sy, sz = size
+        corners = [
+            (ox, oy, oz), (ox + sx, oy, oz), (ox + sx, oy + sy, oz), (ox, oy + sy, oz),
+            (ox, oy, oz + sz), (ox + sx, oy, oz + sz), (ox + sx, oy + sy, oz + sz),
+            (ox, oy + sy, oz + sz),
+        ]
+        vertices = [writer.add("VERTEX_POINT('',#%d)" % writer.point(c)) for c in corners]
+        edges = {}
+
+        def edge(a, b):
+            if (a, b) in edges:
+                return edges[(a, b)], True
+            if (b, a) in edges:
+                return edges[(b, a)], False
+            pa, pb = corners[a], corners[b]
+            direction = normalize(tuple(pb[i] - pa[i] for i in range(3)))
+            vector = writer.add("VECTOR('',#%d,%.6f)"
+                                % (writer.direction(direction), math.dist(pa, pb)))
+            line = writer.add("LINE('',#%d,#%d)" % (writer.point(pa), vector))
+            curve = writer.add("EDGE_CURVE('',#%d,#%d,#%d,.T.)"
+                               % (vertices[a], vertices[b], line))
+            edges[(a, b)] = curve
+            return curve, True
+
+        faces = [
+            ((0, 3, 2, 1), (0, 0, -1)), ((4, 5, 6, 7), (0, 0, 1)),
+            ((0, 1, 5, 4), (0, -1, 0)), ((1, 2, 6, 5), (1, 0, 0)),
+            ((2, 3, 7, 6), (0, 1, 0)), ((3, 0, 4, 7), (-1, 0, 0)),
+        ]
+        face_ids = []
+        for loop_indices, normal in faces:
+            oriented = []
+            for k in range(4):
+                curve, forward = edge(loop_indices[k], loop_indices[(k + 1) % 4])
+                oriented.append(writer.add("ORIENTED_EDGE('',*,*,#%d,%s)"
+                                           % (curve, ".T." if forward else ".F.")))
+            loop = writer.add("EDGE_LOOP('',(%s))" % ",".join("#%d" % o for o in oriented))
+            bound = writer.add("FACE_OUTER_BOUND('',#%d,.T.)" % loop)
+            start = corners[loop_indices[0]]
+            ref = normalize(tuple(corners[loop_indices[1]][i] - start[i] for i in range(3)))
+            plane = writer.add("PLANE('',#%d)" % writer.placement(start, normal, ref))
+            face_ids.append(writer.add("ADVANCED_FACE('',(#%d),#%d,.T.)" % (bound, plane)))
+        return writer.add("CLOSED_SHELL('',(%s))" % ",".join("#%d" % f for f in face_ids))
+
+    first = box_shell((0, 0, 0), (20, 20, 10))
+    second = box_shell((30, 0, 0), (20, 20, 10))
+    writer.dump_solids(path, [first, second])
     print("wrote", path)
 
 
@@ -556,6 +616,7 @@ def main():
     make_box(os.path.join(fixtures, "box.step"))
     make_cylinder(os.path.join(fixtures, "cylinder.step"))
     make_plate_with_hole(os.path.join(fixtures, "plate_hole.step"))
+    make_two_parts(os.path.join(fixtures, "two_parts.step"))
     make_dxf(os.path.join(fixtures, "drawing.dxf"))
     make_ascii_stl(os.path.join(fixtures, "tetra.stl"))
 

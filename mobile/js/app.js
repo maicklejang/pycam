@@ -18,7 +18,7 @@
      "toast", "file-input", "recent", "recent-list", "tab-info", "tab-layers", "tab-display",
      "btn-measure", "measure-bar", "measure-main", "measure-detail", "measure-clear",
      "btn-section", "section-bar", "section-slider", "section-flip", "section-value",
-     "sel-theme"
+     "sel-theme", "chk-part-colors"
     ].forEach(function (id) {
         el[id] = doc.getElementById(id);
     });
@@ -203,6 +203,10 @@
         el["sel-projection"].value = viewer.options.projection;
         el["chk-lock"].checked = viewer.options.lockRotation;
         el["btn-grid"].classList.toggle("on", viewer.options.showGrid);
+        var hasParts = !!(result.mesh && result.mesh.colors);
+        el["chk-part-colors"].checked = hasParts && viewer.options.partColors;
+        el["chk-part-colors"].disabled = !hasParts;
+        el["chk-part-colors"].parentNode.style.opacity = hasParts ? "" : "0.45";
     }
 
     function buildLayerList(result) {
@@ -590,6 +594,9 @@
     });
     el["chk-axes"].addEventListener("change", function () {
         viewer.setOption("showAxes", el["chk-axes"].checked);
+    });
+    el["chk-part-colors"].addEventListener("change", function () {
+        viewer.setOption("partColors", el["chk-part-colors"].checked);
     });
     el["chk-bbox"].addEventListener("change", function () {
         viewer.setOption("showBBox", el["chk-bbox"].checked);

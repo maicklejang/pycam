@@ -42,6 +42,7 @@ repository root is still there to keep Jekyll out of the way.)
 | **Measure** | tap two points for the distance and its X/Y/Z components, snapping to corners and edges |
 | **Section** | slice the model on X, Y or Z with a slider; the cut is capped, so it reads as a real section |
 | **Display** | solid, solid + edges, wireframe, grid, axes, bounding box, light or dark viewport |
+| **Parts** | a STEP file with several solids gets one colour per part, switchable in the view tab |
 | **Share** | export the current view as a PNG (Web Share or download) |
 | **Remember** | the last 5 files (up to 32 MB each) are kept in IndexedDB for one-tap reopening |
 
@@ -83,6 +84,19 @@ partially.
 
 Clipping runs in the fragment shader, so it costs nothing to drag the slider around, and the
 grid, axes and measurement markers deliberately stay unclipped.
+
+## Part colours
+
+A STEP file that contains more than one solid is coloured per part: every item of a shape
+representation - which is what a person means by "a part" - gets its own hue, spread with the
+golden ratio so that neighbouring parts never land on the same colour, and kept at low
+saturation so shading still reads.  Single-part files, STL and DXF keep the plain material,
+and the switch in the **View** tab turns the colouring off.
+
+The colours ride along as one byte per channel per vertex, which costs a quarter of what a
+float colour would and keeps a large assembly inside a phone's memory.  STEP presentation
+styles (the colours a CAD system stored in the file) are still not read - these are the
+viewer's own, assigned so that parts can be told apart.
 
 ## Background
 
@@ -173,10 +187,10 @@ trimming mistakes.
 
 * Large files are parsed in a Web Worker; the mesh is capped at 4 M triangles and the
   wireframe overlay at 400 k triangles to stay within phone memory.
-* Assembly colours and STEP presentation styles are not read - everything renders in a
-  single material.  Back faces are shaded almost like front faces on purpose: real
-  assemblies contain parts wound the other way round, and a contrasting back face only
-  turned those into a differently coloured blob.
+* STEP presentation styles are not read; multi-solid files are coloured by the viewer
+  instead.  Back faces are shaded almost like front faces on purpose: real assemblies
+  contain parts wound the other way round, and a contrasting back face only turned those
+  into a differently coloured blob.
 * The service worker serves from the network first and keeps its cache as the offline
   copy, so a new release shows up on the next start rather than the one after it.
 * iOS Safari supports installation and offline use, but not the Web Share Target, so on iOS

@@ -239,6 +239,35 @@ test("plate with a through hole: inner loops and inverted faces", function () {
     assert(result.warnings.length === 0, "no warnings: " + result.warnings.join("; "));
 });
 
+test("multi-solid file: one colour per part", function () {
+    var result = P.parseFile(load("fixtures/two_parts.step"), "two_parts.step");
+    var parts = result.stats.filter(function (e) {
+        return e[0] === "Parts";
+    })[0][1];
+    assert(parts === 2, "two parts, got " + parts);
+    assert(result.mesh.colors instanceof Uint8Array, "per-vertex colours are bytes");
+    assert(result.mesh.colors.length === result.mesh.positions.length,
+           "one colour per vertex");
+    var colors = result.mesh.colors;
+    var first = [colors[0], colors[1], colors[2]];
+    var last = [colors[colors.length - 3], colors[colors.length - 2],
+                colors[colors.length - 1]];
+    assert(first.join() !== last.join(),
+           "the two parts differ in colour: " + first + " vs " + last);
+    // both boxes are 20 x 20 x 10, side by side with a 10 mm gap
+    assertClose(meshVolume(result.mesh), 2 * 20 * 20 * 10, 1e-2, "volume of both solids");
+    assertClose(result.bbox.max[0], 50, 1e-4, "bbox spans both parts");
+});
+
+test("a single solid gets no per-part colours", function () {
+    var result = P.parseFile(load("fixtures/box.step"), "box.step");
+    var parts = result.stats.filter(function (e) {
+        return e[0] === "Parts";
+    })[0][1];
+    assert(parts === 1, "one part, got " + parts);
+    assert(!result.mesh.colors, "no colour buffer is produced for a single part");
+});
+
 test("STEP without extension is sniffed", function () {
     var result = P.parseFile(load("fixtures/box.step"), "unknown");
     assert(result.format === "STEP", "sniffed as STEP");

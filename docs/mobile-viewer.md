@@ -34,6 +34,8 @@ branch does not work: both Pages build modes walk the entire tree and stop at
   the drawing units, and - for DXF - the layer list with per-layer visibility.
 * The section button slices the model on X, Y or Z with a slider, and caps the cut so it
   reads as a real section rather than a hollow shell.
+* A STEP file holding several solids is drawn with one colour per part, which the view tab
+  can switch off.
 * The viewport is light grey by default; the view tab switches to a dark palette and
   remembers the choice.
 * The ruler button measures: tap two points and the readout gives the distance and its

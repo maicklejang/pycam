@@ -115,6 +115,8 @@
         }
     }
 
+    P.hsvToRgb = hsvToRgb;
+
     P.aciColor = function (index) {
         if (!aciCache) {
             aciCache = buildAci();

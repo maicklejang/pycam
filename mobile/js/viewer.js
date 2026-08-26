@@ -180,6 +180,7 @@
     var MESH_VS = [
         "attribute vec3 aPosition;",
         "attribute vec3 aNormal;",
+        "attribute vec3 aColor;",
         "uniform mat4 uMVP;",
         "uniform mat4 uModelView;",
         "uniform mat3 uNormalMatrix;",
@@ -187,7 +188,9 @@
         "varying vec3 vWorldNormal;",
         "varying vec3 vViewPos;",
         "varying vec3 vWorldPos;",
+        "varying vec3 vColor;",
         "void main() {",
+        "  vColor = aColor;",
         "  vNormal = uNormalMatrix * aNormal;",
         "  vWorldNormal = aNormal;",
         "  vWorldPos = aPosition;",
@@ -205,7 +208,9 @@
         "uniform vec3 uBackColor;",
         "uniform vec4 uClipPlane;",
         "uniform float uClipEnabled;",
+        "uniform float uUseVertexColor;",
         "varying vec3 vWorldPos;",
+        "varying vec3 vColor;",
         "void main() {",
         "  if (uClipEnabled > 0.5 && dot(vWorldPos, uClipPlane.xyz) > uClipPlane.w) {",
         "    discard;",
@@ -214,15 +219,18 @@
         "  vec3 wn = normalize(vWorldNormal);",
         "  if (!gl_FrontFacing) { n = -n; wn = -wn; }",
         "  vec3 base = gl_FrontFacing ? uColor : uBackColor;",
+        "  if (uUseVertexColor > 0.5) {",
+        "    base = gl_FrontFacing ? vColor : vColor * 0.82;",
+        "  }",
         "  vec3 view = normalize(-vViewPos);",
         "  vec3 key = normalize(vec3(0.4, 0.35, 0.85));",
         "  float diffuse = max(dot(n, key), 0.0);",
         "  float fill = max(dot(n, normalize(vec3(-0.6, -0.3, 0.2))), 0.0) * 0.35;",
         "  float sky = 0.5 + 0.5 * wn.z;",           // Z-up hemisphere light
         "  float rim = pow(1.0 - max(dot(n, view), 0.0), 3.0) * 0.18;",
-        "  vec3 color = base * (0.22 + 0.30 * sky + 0.55 * diffuse + fill);",
+        "  vec3 color = base * (0.46 + 0.24 * sky + 0.38 * diffuse + fill * 0.5);",
         "  vec3 halfway = normalize(key + view);",
-        "  color += vec3(1.0) * pow(max(dot(n, halfway), 0.0), 42.0) * 0.22;",
+        "  color += vec3(1.0) * pow(max(dot(n, halfway), 0.0), 42.0) * 0.16;",
         "  color += vec3(0.45, 0.62, 0.95) * rim;",
         "  gl_FragColor = vec4(color, 1.0);",
         "}"
@@ -287,9 +295,9 @@
         light: {
             backgroundTop: [0.95, 0.96, 0.97],
             backgroundBottom: [0.72, 0.75, 0.79],
-            material: [0.60, 0.65, 0.72],
-            backface: [0.50, 0.54, 0.60],
-            cut: [0.44, 0.49, 0.57],
+            material: [0.80, 0.84, 0.90],
+            backface: [0.70, 0.74, 0.80],
+            cut: [0.58, 0.62, 0.70],
             grid: [0.58, 0.61, 0.66],
             outline: [0.10, 0.12, 0.16],
             wireframe: [0.15, 0.35, 0.60],
@@ -300,9 +308,9 @@
         dark: {
             backgroundTop: [0.086, 0.098, 0.13],
             backgroundBottom: [0.043, 0.051, 0.07],
-            material: [0.62, 0.68, 0.78],
-            backface: [0.50, 0.55, 0.64],
-            cut: [0.50, 0.56, 0.66],
+            material: [0.72, 0.77, 0.85],
+            backface: [0.62, 0.67, 0.75],
+            cut: [0.56, 0.61, 0.70],
             grid: [0.16, 0.19, 0.25],
             outline: [0.05, 0.07, 0.11],
             wireframe: [0.45, 0.72, 0.95],
@@ -353,7 +361,8 @@
             throw new Error("WebGL is not available in this browser");
         }
         this.gl = gl;
-        this.meshProgram = program(gl, MESH_VS, MESH_FS, ["aPosition", "aNormal"]);
+        this.meshProgram = program(gl, MESH_VS, MESH_FS,
+                                   ["aPosition", "aNormal", "aColor"]);
         this.lineProgram = program(gl, LINE_VS, LINE_FS, ["aPosition"]);
         this.backgroundProgram = program(gl, BACKGROUND_VS, BACKGROUND_FS, ["aPosition"]);
         this.backgroundQuad = gl.createBuffer();
@@ -373,7 +382,8 @@
             showAxes: true,
             showBBox: false,
             lockRotation: false,
-            theme: "light"
+            theme: "light",
+            partColors: true
         };
 
         /* Section plane: `position` is 0..1 across the model's extent on `axis`. */
@@ -555,6 +565,9 @@
             if (entry && entry.normal) {
                 gl.deleteBuffer(entry.normal);
             }
+            if (entry && entry.color) {
+                gl.deleteBuffer(entry.color);
+            }
         }
         drop(this.buffers.mesh);
         drop(this.buffers.grid);
@@ -578,6 +591,7 @@
             this.buffers.mesh = {
                 position: this.makeBuffer(result.mesh.positions),
                 normal: this.makeBuffer(result.mesh.normals),
+                color: result.mesh.colors ? this.makeBuffer(result.mesh.colors) : null,
                 count: result.mesh.positions.length / 3
             };
         }
@@ -1295,8 +1309,21 @@
         gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
         gl.bindBuffer(gl.ARRAY_BUFFER, buffer.normal);
         gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+
+        var perPart = !!buffer.color && this.options.partColors && !color;
+        if (perPart) {
+            gl.enableVertexAttribArray(2);
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffer.color);
+            gl.vertexAttribPointer(2, 3, gl.UNSIGNED_BYTE, true, 0, 0);
+        } else {
+            gl.disableVertexAttribArray(2);
+            gl.vertexAttrib3f(2, 1, 1, 1);
+        }
+        gl.uniform1f(prog.uniforms.uUseVertexColor, perPart ? 1 : 0);
+
         gl.drawArrays(gl.TRIANGLES, 0, buffer.count);
         gl.disableVertexAttribArray(1);
+        gl.disableVertexAttribArray(2);
     };
 
     Viewer.prototype.applyClip = function (prog, enabled) {

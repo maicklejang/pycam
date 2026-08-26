@@ -23,6 +23,9 @@ self.onmessage = function (event) {
         var transfer = [];
         if (result.mesh) {
             transfer.push(result.mesh.positions.buffer, result.mesh.normals.buffer);
+            if (result.mesh.colors) {
+                transfer.push(result.mesh.colors.buffer);
+            }
         }
         (result.edges || []).forEach(function (layer) {
             transfer.push(layer.positions.buffer);
