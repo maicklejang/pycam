@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -19,7 +21,7 @@ android {
     // 없으면 release 는 서명 없이 빌드되고, 설치용으로는 debug APK 를 쓰면 된다.
     val keystorePropertiesFile = rootProject.file("keystore.properties")
     if (keystorePropertiesFile.exists()) {
-        val keystoreProperties = java.util.Properties().apply {
+        val keystoreProperties = Properties().apply {
             keystorePropertiesFile.inputStream().use { load(it) }
         }
         signingConfigs {
