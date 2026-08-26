@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">명함 스캐너</string>
+
+    <string name="action_capture">명함 촬영</string>
+    <string name="action_pick">갤러리에서 선택</string>
+    <string name="action_save_contact">연락처에 저장</string>
+    <string name="action_rescan">다시 인식</string>
+    <string name="action_share_vcard">vCard 공유</string>
+    <string name="action_show_raw">인식 원문 보기</string>
+    <string name="action_delete">삭제</string>
+    <string name="action_shutter">촬영</string>
+    <string name="action_flash">플래시 켜기/끄기</string>
+    <string name="action_close">닫기</string>
+
+    <string name="empty_title">아직 스캔한 명함이 없습니다</string>
+    <string name="empty_message">아래 버튼으로 명함을 촬영하면 이름·회사·전화번호·이메일을 자동으로 읽어 연락처에 저장합니다.</string>
+
+    <string name="hint_name">이름</string>
+    <string name="hint_company">회사</string>
+    <string name="hint_title">직함</string>
+    <string name="hint_department">부서</string>
+    <string name="hint_mobile">휴대폰</string>
+    <string name="hint_phone">전화</string>
+    <string name="hint_fax">팩스</string>
+    <string name="hint_email">이메일</string>
+    <string name="hint_website">웹사이트</string>
+    <string name="hint_address">주소</string>
+    <string name="hint_note">메모</string>
+
+    <string name="review_title">명함 정보 확인</string>
+    <string name="recognizing">명함을 인식하는 중…</string>
+    <string name="recognize_failed">텍스트를 인식하지 못했습니다. 다시 촬영해 주세요.</string>
+    <string name="recognize_empty">읽을 수 있는 글자를 찾지 못했습니다. 조명을 밝게 하고 다시 촬영해 보세요.</string>
+    <string name="card_image">명함 사진</string>
+    <string name="crop_to_card">명함 영역만 저장</string>
+    <string name="raw_text_title">인식 원문</string>
+
+    <string name="saved_new">새 연락처로 저장했습니다.</string>
+    <string name="saved_updated">기존 연락처에 %1$d개 항목을 추가했습니다.</string>
+    <string name="saved_nothing_new">이미 저장된 연락처입니다. 추가할 항목이 없습니다.</string>
+    <string name="save_failed">연락처 저장에 실패했습니다: %1$s</string>
+    <string name="nothing_to_save">저장할 내용이 없습니다. 이름이나 연락처를 입력해 주세요.</string>
+
+    <string name="permission_camera_required">명함을 촬영하려면 카메라 권한이 필요합니다.</string>
+    <string name="permission_contacts_required">연락처에 저장하려면 주소록 권한이 필요합니다.</string>
+    <string name="capture_failed">촬영에 실패했습니다.</string>
+    <string name="capture_hint">명함을 안내선 안에 맞춰 주세요</string>
+
+    <string name="search_hint">이름·회사·번호·초성으로 검색</string>
+    <string name="search_empty_title">검색 결과가 없습니다</string>
+    <string name="search_empty_message">다른 낱말로 찾아 보세요. 이름, 회사, 부서, 직함, 전화번호, 이메일, 주소, 인식 원문까지 검색합니다.</string>
+    <string name="search_result_count">%1$d개 명함</string>
+</resources>
