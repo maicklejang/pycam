@@ -35,11 +35,13 @@ sudo apt-get install --yes python3-pip openjdk-17-jdk zip unzip autoconf libtool
     pkg-config zlib1g-dev libncurses-dev libffi-dev libssl-dev cmake ccache
 pip install buildozer cython==0.29.36
 
-python3 android/prepare_package.py     # collect the modules of PyCAM
-cd android
-buildozer android debug                # the result is bin/photo3d-*-debug.apk
-buildozer android debug deploy run     # build, install via USB and start
+android/build.sh                            # the result is android/bin/photo3d-*-debug.apk
+android/build.sh android debug deploy run   # build, install via USB and start
 ```
+
+Use `build.sh` instead of calling `buildozer` directly: it collects the modules of PyCAM and
+applies `pip-constraints.txt`.  Without that constraint the build fails while installing the
+pip dependencies of Kivy - the file describes the reason.
 
 `prepare_package.py` copies the modules of the reconstruction into `android/pycam/` (that
 directory is generated - do not edit it).  Everything else stays outside of the APK, so the

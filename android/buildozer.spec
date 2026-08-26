@@ -24,18 +24,9 @@ version.filename = %(source.dir)s/pycam/Version.py
 # instead by adding "camera4kivy,gestures4kivy" here plus the CameraX libraries to
 # "android.gradle_dependencies" - see android/README.md.
 #
-# "charset-normalizer" is pinned on purpose.  The recipe of Kivy installs "requests" (and
-# friends) with pip, and pip resolves the dependency "charset-normalizer" to its *Android*
-# wheel.  python-for-android accepts that wheel while resolving, but installs it afterwards
-# with a pip that runs on the build machine, which rejects it:
-#
-#   ERROR: charset_normalizer-3.5.1-cp314-cp314-android_24_arm64_v8a.whl
-#          is not a supported wheel on this platform
-#
-# Version 3.3.2 publishes no Android wheels, so the pure Python wheel is used and the
-# installation succeeds.  The package is only a dependency of "requests", which this
-# application never imports.
-requirements = python3,kivy,numpy,pillow,android,charset-normalizer==3.3.2
+# The pip dependencies of the Kivy recipe need a constraint - see pip-constraints.txt.  It is
+# applied by build.sh, which is why the APK has to be built with that script.
+requirements = python3,kivy,numpy,pillow,android
 
 icon.filename = %(source.dir)s/data/icon.png
 orientation = portrait

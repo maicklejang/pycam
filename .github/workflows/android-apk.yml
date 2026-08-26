@@ -43,12 +43,12 @@ jobs:
           echo "$JAVA_17/bin" >> "$GITHUB_PATH"
           "$JAVA_17/bin/java" -version
 
-      - name: Collect the modules of PyCAM
-        run: python3 android/prepare_package.py
-
-      # the downloaded SDK/NDK and the compiled dependencies are reused by the next build
+      # the downloaded SDK/NDK and the compiled dependencies are reused by the next build;
+      # saving happens in a separate step, so that a failed build does not throw away the
+      # downloads (that is what "actions/cache" would do - it only saves after a success)
       - name: Restore the build cache
-        uses: actions/cache@v4
+        id: cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.buildozer
@@ -57,8 +57,16 @@ jobs:
           restore-keys: buildozer-
 
       - name: Build the APK
-        working-directory: android
-        run: buildozer android debug
+        run: android/build.sh android debug
+
+      - name: Save the build cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.buildozer
+            android/.buildozer
+          key: buildozer-${{ hashFiles('android/buildozer.spec') }}-${{ github.run_id }}
 
       - name: Report the result
         run: ls -la android/bin/
