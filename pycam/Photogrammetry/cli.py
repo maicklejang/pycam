@@ -60,7 +60,8 @@ def _add_rig_arguments(parser):
                        help="horizontal distance between camera and rotation axis")
     group.add_argument("--height", type=float, help="height of the camera above the turntable")
     group.add_argument("--target-z", type=float,
-                       help="height of the point that the camera is aimed at")
+                       help="height of the point that the camera is aimed at "
+                            "(default: the middle of the object)")
     group.add_argument("--clockwise", action="store_true",
                        help="the turntable rotates clockwise (seen from above)")
     group.add_argument("--object-diameter", type=float, default=120.0,
@@ -251,7 +252,7 @@ def _command_demo(args):
     rig = _get_rig(args)
     intrinsics = CameraIntrinsics.from_fov(args.width, args.height_pixels, args.fov)
     cameras = turntable_cameras(intrinsics, turntable_angles(args.count), distance=rig.distance,
-                                height=rig.height, target_z=rig.target_z,
+                                height=rig.height, target_z=rig.effective_target_z,
                                 clockwise=rig.clockwise)
     shape = synthetic.demo_object(height=args.object_height * 0.75,
                                   base_radius=args.object_diameter * 0.25)

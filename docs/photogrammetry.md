@@ -98,6 +98,7 @@ The most important options:
 | --- | --- |
 | `--resolution` | number of voxels along the longest axis - more detail, but slower |
 | `--object-diameter` / `--object-height` | the volume that is searched for the object |
+| `--target-z` | the height that the camera is aimed at (default: the middle of the object) |
 | `--method` | how the object is separated from the background (`background`, `chroma`, `threshold`) |
 | `--object-size` | scale the result until its largest horizontal extent matches a measured value |
 | `--max-missing-views` | tolerate a few photos in which the object was not detected properly |
@@ -105,6 +106,20 @@ The most important options:
 
 The reconstruction reports warnings whenever something looks suspicious, e.g. when the object
 touches the border of a photo or when it does not fit into the search volume.
+
+
+## The Android application
+
+The same reconstruction runs on a phone: the app photographs the object, builds the model and
+stores it as an STL file next to the photos.  See [android/README.md](../android/README.md)
+for the build instructions - the APK is built by the workflow "Build the Android app".
+
+The app can also be started on a desktop computer, which is the easiest way of looking at it:
+
+```
+pip install "kivy[base]" numpy pillow
+python3 android/main.py --demo
+```
 
 
 ## The graphical application

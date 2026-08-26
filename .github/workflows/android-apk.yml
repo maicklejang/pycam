@@ -1,0 +1,60 @@
+name: Build the Android app
+
+# The APK is not built on every push: the build downloads the Android SDK and the NDK and
+# compiles Python plus numpy for ARM, which takes a while.  Start it by hand ("Run workflow")
+# or push a change below "android/".
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'android/**'
+      - 'pycam/Photogrammetry/**'
+      - '.github/workflows/android-apk.yml'
+
+jobs:
+  apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            autoconf automake libtool pkg-config zlib1g-dev libncurses-dev libffi-dev \
+            libssl-dev cmake ccache git zip unzip openjdk-17-jdk
+          python -m pip install --upgrade pip
+          pip install "buildozer==1.5.0" "cython==0.29.36" virtualenv
+
+      - name: Collect the modules of PyCAM
+        run: python3 android/prepare_package.py
+
+      # the downloaded SDK/NDK and the compiled dependencies are reused by the next build
+      - name: Restore the build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            android/.buildozer
+          key: buildozer-${{ hashFiles('android/buildozer.spec') }}
+          restore-keys: buildozer-
+
+      - name: Build the APK
+        working-directory: android
+        run: buildozer android debug
+
+      - name: Report the result
+        run: ls -la android/bin/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pycam-photo3d-apk
+          path: android/bin/*.apk
+          if-no-files-found: error

@@ -63,12 +63,26 @@ class TurntableRig:
 
     def __init__(self, distance=None, height=None, target_z=None, clockwise=False,
                  object_diameter=120.0, object_height=120.0):
+        """ @param target_z: the height that the camera is aimed at (defaults to the middle
+            of the object, which is what one does intuitively while setting up the camera)
+        """
         self.distance = float(DEFAULT_RIG["distance"] if distance is None else distance)
         self.height = float(DEFAULT_RIG["height"] if height is None else height)
         self.target_z = None if target_z is None else float(target_z)
         self.clockwise = bool(clockwise)
         self.object_diameter = float(object_diameter)
         self.object_height = float(object_height)
+
+    @property
+    def effective_target_z(self):
+        """ the height that the camera is aimed at
+
+        Without an explicit value the middle of the object is assumed - that is where one
+        aims a camera without thinking about it.
+        """
+        if self.target_z is not None:
+            return self.target_z
+        return self.object_height / 2.0
 
     @property
     def bounds(self):
@@ -146,7 +160,8 @@ class CaptureSession:
         """ return one camera per shot, matching the given image size """
         return turntable_cameras(self.get_intrinsics(width, height), self.angles,
                                  distance=self.rig.distance, height=self.rig.height,
-                                 target_z=self.rig.target_z, clockwise=self.rig.clockwise)
+                                 target_z=self.rig.effective_target_z,
+                                 clockwise=self.rig.clockwise)
 
     def as_dict(self):
         data = {"format": SESSION_FORMAT,
