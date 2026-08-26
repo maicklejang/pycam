@@ -103,9 +103,9 @@ requirements = python3,kivy,numpy,pillow,android,camera4kivy,gestures4kivy
 android.gradle_dependencies = androidx.camera:camera-core:1.3.4, androidx.camera:camera-camera2:1.3.4, androidx.camera:camera-lifecycle:1.3.4, androidx.camera:camera-view:1.3.4, androidx.camera:camera-extensions:1.3.4
 ```
 
-Note that python-for-android then resolves the dependencies of those packages with pip, which
-currently fails on `charset-normalizer`: p4a picks its Android wheel and afterwards refuses to
-install it ("not a supported wheel on this platform").
+Both packages are pure Python and resolve together with the pinned `charset-normalizer` of
+`buildozer.spec`, so no further change is needed.  Do not remove that pin: without it the
+build fails while installing the dependencies of Kivy (see the comment in `buildozer.spec`).
 
 
 ## Known limitations
