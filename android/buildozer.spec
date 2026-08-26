@@ -20,8 +20,16 @@ source.exclude_dirs = tests,bin,.buildozer,__pycache__
 version.regex = VERSION = ['"](.*)['"]
 version.filename = %(source.dir)s/pycam/Version.py
 
-# "camera4kivy" provides the camera of Android, "android" the permission handling
-requirements = python3,kivy==2.3.1,numpy,pillow,camera4kivy,gestures4kivy,android
+# Every requirement here is backed by a recipe of python-for-android.  That matters: as soon
+# as a package without a recipe is listed, p4a resolves its dependencies with pip - and the
+# dependencies of Kivy pull in "charset-normalizer", whose Android wheel p4a resolves but
+# cannot install ("not a supported wheel on this platform").
+#
+# The camera is therefore used through the provider that Kivy brings along.  To use CameraX
+# instead, add "camera4kivy,gestures4kivy" here and the CameraX libraries to
+# "android.gradle_dependencies" (see android/README.md) - the application picks camera4kivy
+# up automatically as soon as it can be imported.
+requirements = python3,kivy,numpy,pillow,android
 
 icon.filename = %(source.dir)s/data/icon.png
 orientation = portrait
@@ -36,9 +44,6 @@ android.archs = arm64-v8a
 android.allow_backup = True
 android.accept_sdk_license = True
 android.enable_androidx = True
-
-# CameraX - the libraries that "camera4kivy" builds upon
-android.gradle_dependencies = androidx.camera:camera-core:1.3.4, androidx.camera:camera-camera2:1.3.4, androidx.camera:camera-lifecycle:1.3.4, androidx.camera:camera-view:1.3.4, androidx.camera:camera-extensions:1.3.4
 
 [buildozer]
 

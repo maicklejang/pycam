@@ -21,8 +21,10 @@ Access to the camera of the device.
 
 Three implementations are available and the first usable one is selected:
 
-  * "camera4kivy": the modern camera of Android (CameraX)
-  * "kivy": the camera provider that is built into Kivy (also used on the desktop)
+  * "camera4kivy": the modern camera of Android (CameraX) - used as soon as the package is
+    part of the APK (see android/README.md), it is not installed by default
+  * "kivy": the camera provider that is built into Kivy - on Android it talks to the camera
+    via pyjnius, on a desktop computer it uses the webcam
   * "demo": a virtual camera that shows a rotating test object - it needs no hardware and
     makes it possible to try out the whole application anywhere
 

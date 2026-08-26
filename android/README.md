@@ -89,9 +89,30 @@ provider renders a virtual object on a turntable and is used by the automated in
 (`pycam/Test/test_android_app.py`).
 
 
+## The camera on the phone
+
+The APK uses the Android camera provider that Kivy brings along (`android.hardware.Camera`
+through pyjnius).  It needs no additional package, which keeps the build simple.
+
+If that provider does not work on a device, the app can use CameraX through
+[camera4kivy](https://pypi.org/project/camera4kivy/) instead - `camera_provider.py` prefers it
+whenever it can be imported.  Two changes to `buildozer.spec` are needed:
+
+```
+requirements = python3,kivy,numpy,pillow,android,camera4kivy,gestures4kivy
+android.gradle_dependencies = androidx.camera:camera-core:1.3.4, androidx.camera:camera-camera2:1.3.4, androidx.camera:camera-lifecycle:1.3.4, androidx.camera:camera-view:1.3.4, androidx.camera:camera-extensions:1.3.4
+```
+
+Note that python-for-android then resolves the dependencies of those packages with pip, which
+currently fails on `charset-normalizer`: p4a picks its Android wheel and afterwards refuses to
+install it ("not a supported wheel on this platform").
+
+
 ## Known limitations
 
 * The reconstruction is a "shape from silhouette" method: concave details that never appear in
   an outline (the inside of a cup, a hole in the top) are filled up.
 * A scan takes about half a minute to two minutes on a phone, depending on the detail level.
 * The interface is in English.
+* The camera of the phone is used through Kivy's own provider (see above); that path could not
+  be tried out on a device while the app was written.
