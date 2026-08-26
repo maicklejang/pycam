@@ -77,6 +77,20 @@ class TestAppSupport(pycam.Test.PycamTestCase):
         # the turntable moves on with every photo
         self.assertGreater(np.abs(photos[0].astype(int) - photos[2].astype(int)).max(), 30)
 
+    def test_the_demo_camera_is_never_a_fallback(self):
+        """ a virtual object instead of the real one would look like a working camera """
+        from photo3d.camera_provider import CameraError, DemoCameraProvider, create_provider
+        try:
+            provider = create_provider("kivy", resolution=(160, 120))
+        except CameraError:
+            # the expected outcome on a machine without a camera
+            pass
+        else:
+            self.assertNotEqual(provider.name, DemoCameraProvider.name)
+        # the virtual camera is used when it is asked for by name
+        self.assertEqual(create_provider("demo", resolution=(160, 120), count=4).name,
+                         DemoCameraProvider.name)
+
     def test_outline_overlay_marks_the_object(self):
         from photo3d.analysis import outline_overlay
         from photo3d.camera_provider import DemoCameraProvider

@@ -168,7 +168,8 @@ class CaptureScreen(Screen):
         row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(48),
                         spacing=dp(8))
         row.add_widget(action_button("undo", self._undo, height=dp(48)))
-        row.add_widget(action_button("check outline", self._check_outline, height=dp(48)))
+        self.outline_button = action_button("check outline", self._check_outline, height=dp(48))
+        row.add_widget(self.outline_button)
         self.layout.add_widget(row)
         self.build_button = action_button("build 3D model", self._build)
         self.layout.add_widget(self.build_button)
@@ -187,8 +188,9 @@ class CaptureScreen(Screen):
         except CameraError as exc:
             self._widget = None
             self.preview_area.add_widget(body_label(
-                "the camera could not be opened:\n{}\n\nUse 'try it without a camera' on the "
-                "start screen to test the application.".format(exc)))
+                "The camera cannot be used:\n{}\n\nCheck whether this app is allowed to use "
+                "the camera in the settings of the phone.  'Try it without a camera' on the "
+                "start screen works in any case.".format(exc)))
         self._update_state()
 
     def on_leave(self):
@@ -213,23 +215,31 @@ class CaptureScreen(Screen):
                               "Do not move the phone.".format(step))
         else:
             self.hint.text = "The turn is complete - build the model now."
-        self.shot_button.disabled = (self._widget is None) or (taken >= total)
+        without_camera = self._widget is None
+        self.shot_button.disabled = without_camera or (taken >= total)
+        self.background_button.disabled = without_camera
+        self.outline_button.disabled = without_camera
         self.build_button.disabled = taken < 6
         self.build_button.text = ("build 3D model" if taken >= 6
                                   else "build 3D model (at least 6 photos)")
 
+    def _provider(self):
+        """ return the camera or explain why there is none """
+        provider = self.manager.app.provider
+        if provider is None:
+            raise CameraError("the camera of this device is not available")
+        return provider
+
     def _grab(self):
-        application = self.manager.app
         try:
-            return application.provider.capture()
+            return self._provider().capture()
         except CameraError as exc:
             show_message("no image", str(exc))
             return None
 
     def _capture_background(self):
-        application = self.manager.app
         try:
-            image = application.provider.capture_background()
+            image = self._provider().capture_background()
         except CameraError as exc:
             show_message("no image", str(exc))
             return

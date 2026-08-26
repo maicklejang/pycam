@@ -159,17 +159,21 @@ class KivyCameraProvider(BaseCameraProvider):
     @classmethod
     def is_available(cls):
         try:
-            from kivy.core.camera import Camera  # noqa: F401 (just a probe)
+            from kivy.core.camera import Camera
         except Exception:
             return False
-        return True
+        # the name exists even when Kivy found no usable provider for this system
+        return Camera is not None
 
     def create_widget(self):
+        from kivy.core.camera import Camera as CoreCamera
+        if CoreCamera is None:
+            raise CameraError("Kivy found no camera on this device")
         from kivy.uix.camera import Camera
         try:
             self._camera = Camera(index=self.index, resolution=self.resolution, play=False)
         except Exception as exc:
-            raise CameraError("the camera could not be opened: {}".format(exc))
+            raise CameraError("camera {} could not be opened ({})".format(self.index, exc))
         return self._camera
 
     def start(self):
@@ -252,22 +256,26 @@ def create_provider(preferred=None, **kwargs):
     """ return the first usable camera provider
 
     @param preferred: the name of a provider ("camera4kivy", "kivy" or "demo")
+    @raises CameraError: if no real camera can be used
     """
-    candidates = [Camera4KivyProvider, KivyCameraProvider, DemoCameraProvider]
-    if preferred:
-        candidates.sort(key=lambda item: item.name != preferred)
+    if preferred == DemoCameraProvider.name:
+        candidates = [DemoCameraProvider]
+    else:
+        # The virtual camera is never used as a fallback.  Scanning a virtual object instead
+        # of the real one would look like a working camera, which is worse than an error.
+        candidates = [Camera4KivyProvider, KivyCameraProvider]
+        if preferred:
+            candidates.sort(key=lambda item: item.name != preferred)
     errors = []
     for candidate in candidates:
-        if preferred and candidate.name != preferred and preferred == "demo":
-            continue
         if not candidate.is_available():
-            errors.append("{}: not installed".format(candidate.name))
+            errors.append("{}: not available".format(candidate.name))
             continue
         try:
             return candidate(**_matching_arguments(candidate, kwargs))
         except Exception as exc:
             errors.append("{}: {}".format(candidate.name, exc))
-    raise CameraError("no camera is available ({})".format(", ".join(errors)))
+    raise CameraError("; ".join(errors) if errors else "no camera provider was found")
 
 
 def _matching_arguments(candidate, arguments):
