@@ -24,9 +24,9 @@ manager to fetch the STL file.
 
 The workflow [`android-apk.yml`](../.github/workflows/android-apk.yml) builds the APK.  Start
 it under "Actions" -> "Build the Android app" -> "Run workflow" and download the artifact
-`pycam-photo3d-apk` when it has finished.  The first build takes about an hour, since the
-Android SDK, the NDK, Python and numpy are compiled for ARM; the following builds reuse the
-cache.
+`pycam-photo3d-apk` when it has finished.  The first build takes about half an hour, since the
+Android SDK and the NDK are downloaded and Python, Kivy and numpy are compiled for ARM.  The
+following builds reuse the cache and take about three minutes.
 
 ### locally (Linux)
 
