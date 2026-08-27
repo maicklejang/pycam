@@ -8,6 +8,7 @@ include release_info.txt
 include requirements.txt
 include technical_details.txt
 include pycam
+recursive-include android *
 recursive-include docs *
 recursive-include man *
 recursive-include share *

@@ -1,4 +1,7 @@
 Version 0.7.0 - 2017-12-??
+ * new tool "pycam-photo3d": create a 3D model from photos of an object on a turntable
+   (silhouette based scanning, command line and graphical application)
+ * new Android application ("android/"): the same scanner running on a phone
  * switch to Python3 (removing support for Python2)
  * switch to GTK3 (from GTK2)
  * switch OpenGL widget from GtkGLext to GLArea (part of GKT3)
