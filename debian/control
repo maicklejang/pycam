@@ -31,8 +31,11 @@ Recommends:
  inkscape,
  pstoedit,
  python3-numpy,
+ python3-opencv,
  python3-opengl,
+ python3-pil,
  python3-setproctitle,
+ python3-tk,
 Description: CAM program & Python library for generating toolpaths
  PyCAM is a toolpath generator for 3 axis machines. The generated
  GCode can be used with LinuxCNC and other machine controllers.

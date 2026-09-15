@@ -13,6 +13,22 @@ Graphical Interface: `pycam/run_gui.py`
 
 Scripted Toolpath Processing: `pycam/run_cli.py FLOW_SPECIFICATION_FILE`
 
+3D Scanning from Photos: `pycam/run_photo3d.py`
+
+
+## 3D scanning with a camera
+
+PyCAM can build a 3D model from a series of photos of a real object.  Put the object onto a
+turntable, take a photo after every step of the rotation and let PyCAM intersect the outlines
+of all photos.  The result is a watertight STL file that is ready for toolpath generation.
+
+    pycam/run_photo3d.py demo --output pawn.stl                 # try it without a camera
+    pycam/run_photo3d.py capture ~/scans/cup --count 24         # take photos with a webcam
+    pycam/run_photo3d.py reconstruct ~/scans/cup --output cup.stl
+    pycam/run_photo3d.py gui                                    # the graphical scanner
+
+See the [documentation](docs/photogrammetry.md) for the description of the capture setup.
+
 
 ## Resources
 

@@ -33,6 +33,7 @@ pages:
   - Bounding Box: bounding-box.md
   - Task Settings: task-settings.md
 - Advanced Usage:
+  - 3D Scanning with a Camera: photogrammetry.md
   - Keyboard Shortcuts: keyboard-shortcuts.md
   - Command-line Examples: cli-examples.md
   - Server Mode: server-mode.md

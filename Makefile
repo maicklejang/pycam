@@ -14,8 +14,9 @@ DIST_WIN32 = $(DIST_DIR)/$(DIST_PREFIX)$(VERSION).win32.exe
 # (introduced in python 2.6)
 DISTUTILS_PLAT_NAME = $(shell $(PYTHON_EXE) setup.py --help build_ext \
 		      | grep -q -- "--plat-name" && echo "--plat-name win32")
-PYTHON_CHECK_STYLE_TARGETS = pycam pyinstaller/hooks/hook-pycam.py setup.py
+PYTHON_CHECK_STYLE_TARGETS = pycam android pyinstaller/hooks/hook-pycam.py setup.py
 SPELLING_PATHS = \
+	android \
 	Changelog \
 	docs \
 	INSTALL.md \

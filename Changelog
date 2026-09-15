@@ -1,4 +1,12 @@
 Version 0.7.0 - 2017-12-??
+ * new tool "pycam-photo3d": create a 3D model from photos of an object on a turntable
+   (silhouette based scanning, command line and graphical application)
+ * pycam-photo3d: reliable separation of object and background in real photos (shadow
+   removal, exposure compensation, automatic choice of the method, rejection of single
+   photos that do not fit) and a new subcommand "diagnose" explaining a failed scan
+ * pycam-photo3d: textured models (UV mapping) - an OBJ file with a material and a texture
+   that is painted from the photos
+ * new Android application ("android/"): the same scanner running on a phone
  * switch to Python3 (removing support for Python2)
  * switch to GTK3 (from GTK2)
  * switch OpenGL widget from GtkGLext to GLArea (part of GKT3)
