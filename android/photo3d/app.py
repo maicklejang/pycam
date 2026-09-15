@@ -33,6 +33,7 @@ from pycam.Photogrammetry.pipeline import ReconstructionConfig, reconstruct
 from pycam.Photogrammetry.preview import render_mesh
 from pycam.Photogrammetry.session import CaptureSession, TurntableRig
 from pycam.Photogrammetry.silhouette import SilhouetteConfig
+from pycam.Photogrammetry.texturing import TextureConfig
 
 from photo3d import storage
 from photo3d.camera_provider import CameraError, create_provider, default_provider_name
@@ -55,6 +56,7 @@ class Photo3DApp(App):
         self.background_image = None
         self.shot_count = 24
         self.detail = "normal"
+        self.texture = True
 
     def build(self):
         Window.clearcolor = BACKGROUND
@@ -85,7 +87,7 @@ class Photo3DApp(App):
 
     # -- the state of one scan -----------------------------------------------------------
 
-    def start_session(self, values, count, detail):
+    def start_session(self, values, count, detail, texture=True):
         """ prepare a new capture session with the given setup """
         self.close_camera()
         rig = TurntableRig(distance=values["distance"], height=values["height"],
@@ -98,6 +100,7 @@ class Photo3DApp(App):
         self.background_image = None
         self.shot_count = int(count)
         self.detail = detail
+        self.texture = bool(texture)
         session.save()
 
     def open_camera(self):
@@ -137,9 +140,12 @@ class Photo3DApp(App):
 
     def reconstruction_config(self):
         resolution, image_size = DETAIL_LEVELS.get(self.detail, DETAIL_LEVELS["normal"])
+        # a phone has to paint a smaller texture than a desktop computer
+        texture_config = TextureConfig(size=512 if self.detail == "fast" else 1024)
         return ReconstructionConfig(resolution=resolution, max_image_size=image_size,
                                     silhouette=SilhouetteConfig(method="auto"),
-                                    center_model=True)
+                                    center_model=True, texture=self.texture,
+                                    texture_config=texture_config)
 
     def reconstruct(self, progress=None):
         if self.session is None:
@@ -150,8 +156,14 @@ class Photo3DApp(App):
         """ store the model next to the photos and return the written paths """
         directory = self.session.directory
         paths = [result.mesh.write_stl(os.path.join(directory, "model.stl"))]
+        if result.mesh.has_texture:
+            # the STL keeps the shape for PyCAM, the OBJ additionally carries the colors
+            paths.append(result.mesh.write_obj(os.path.join(directory, "model.obj")))
+            paths.append(os.path.join(directory, "model.mtl"))
+            paths.append(os.path.join(directory, "model.png"))
         try:
-            preview_path = os.path.join(directory, "model.png")
+            # "model.png" is the texture - the rendered image gets its own name
+            preview_path = os.path.join(directory, "preview.png")
             save_image(preview_path, render_mesh(result.mesh))
             paths.append(preview_path)
         except Exception:

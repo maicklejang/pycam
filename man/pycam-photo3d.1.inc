@@ -19,6 +19,21 @@ Take 24 photos of an object on a turntable with a connected camera. The camera i
 .fi
 Build a 3D model from the photos of a capture session and store it as an STL file.
 
+.nf
+.B pycam\-photo3d reconstruct ~/scans/cup \-\-output cup.obj
+
+.fi
+Build the same model with the photos painted onto it. Next to the OBJ file a material file
+and the texture (a PNG image) are written.
+
+.nf
+.B pycam\-photo3d diagnose ~/scans/cup
+
+.fi
+Report how well the object could be separated from the background in every photo and write
+the detected outlines into a "debug" directory. This is the first step whenever a model does
+not look like the object.
+
 [NOTES]
 The reconstruction is based on the outlines (silhouettes) of the object. Concave details that
 never show up in an outline (e.g. the inside of a cup) are filled up in the resulting model.

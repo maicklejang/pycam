@@ -150,6 +150,12 @@ class CaptureSession:
                                self.background, self.field_of_view, self.intrinsics, self.created)
         return clone
 
+    def with_target_z(self, target_z):
+        """ return a copy whose camera is aimed at the given height """
+        rig = TurntableRig.from_dict(dict(self.rig.as_dict(), target_z=float(target_z)))
+        return CaptureSession(self.directory, rig, list(self.shots), self.background,
+                              self.field_of_view, self.intrinsics, self.created)
+
     def get_intrinsics(self, width, height):
         """ return the camera parameters matching the given image size """
         if self.intrinsics is not None:

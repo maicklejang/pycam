@@ -13,7 +13,8 @@ the phone.
 | result | progress, rotatable preview of the model, export as STL |
 
 The finished scan is stored in `Android/data/net.sourceforge.pycam.photo3d/files/scans/` on
-the internal memory of the phone: the photos, `session.json`, `model.stl` and `model.png`.
+the internal memory of the phone: the photos, `session.json`, `model.stl`, `preview.png` and -
+with the texture switched on - `model.obj`, `model.mtl` and `model.png`.
 No permission is needed for that directory - connect the phone to a computer or use a file
 manager to fetch the STL file.
 

@@ -127,6 +127,14 @@ class SetupScreen(Screen):
                               font_size=sp(16))
         row.add_widget(self.detail)
         layout.add_widget(row)
+        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(44),
+                        spacing=dp(6))
+        row.add_widget(Label(text="colors (texture)", font_size=sp(14), size_hint_x=0.55,
+                             halign="left"))
+        self.texture = Spinner(text="on", values=("on", "off"), size_hint_x=0.45,
+                               font_size=sp(16))
+        row.add_widget(self.texture)
+        layout.add_widget(row)
         layout.add_widget(BoxLayout())
         layout.add_widget(action_button("start", self._start, primary=True))
         layout.add_widget(action_button("back", self._back))
@@ -144,7 +152,8 @@ class SetupScreen(Screen):
                          .format(", ".join(sorted(missing))))
             return
         application = self.manager.app
-        application.start_session(values, int(self.count.text), self.detail.text)
+        application.start_session(values, int(self.count.text), self.detail.text,
+                                  texture=(self.texture.text == "on"))
         self.manager.current = "capture"
 
 

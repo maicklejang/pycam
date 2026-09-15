@@ -19,6 +19,7 @@ along with PyCAM.  If not, see <http://www.gnu.org/licenses/>.
 
 import math
 import os
+import re
 import shutil
 import tempfile
 import unittest
@@ -36,15 +37,19 @@ if np is not None:
     from pycam.Photogrammetry.carving import carve, carve_refined
     from pycam.Photogrammetry.images import available_backends, save_image
     from pycam.Photogrammetry.mesh import Mesh
-    from pycam.Photogrammetry.pipeline import (ReconstructionConfig, reconstruct,
-                                               reconstruct_from_masks)
+    from pycam.Photogrammetry.pipeline import (ReconstructionConfig, prepare_masks,
+                                               reconstruct, reconstruct_from_masks)
     from pycam.Photogrammetry import preview, synthetic
     from pycam.Photogrammetry.session import (CaptureSession, TurntableRig, load_session,
                                               session_from_directory)
     from pycam.Photogrammetry.silhouette import (SilhouetteConfig, _label_components_numpy,
-                                                 extract_mask, fill_holes,
-                                                 keep_largest_component, otsu_threshold)
+                                                 choose_method, extract_mask, fill_holes,
+                                                 keep_largest_component, otsu_threshold,
+                                                 score_mask, select_object_component,
+                                                 shadow_pixels)
     from pycam.Photogrammetry.surfacenets import extract_surface
+    from pycam.Photogrammetry.texturing import (TextureConfig, bake_texture, cylindrical_uv,
+                                                texture_mesh)
 
 requires_numpy = unittest.skipIf(np is None, "numpy is not available")
 
@@ -414,6 +419,110 @@ class TestPipeline(pycam.Test.PycamTestCase):
 
 
 @requires_numpy
+class TestWholeScan(pycam.Test.PycamTestCase):
+    """ a complete session on disk, including the problems of a real capture """
+
+    DIAMETER = 60.0
+    OBJECT_HEIGHT = 90.0
+    AIM = OBJECT_HEIGHT / 2
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp(prefix="pycam-photo3d-")
+
+    def tearDown(self):
+        shutil.rmtree(self.directory, ignore_errors=True)
+
+    def _write_session(self, count=16, object_height=None, spoil=()):
+        """ store a set of photos and the description of the setup
+
+        @param object_height: the height that is claimed for the search volume
+        @param spoil: indices of photos that are replaced by a useless one
+        """
+        intrinsics = CameraIntrinsics.from_fov(200, 160, 55.0)
+        angles = turntable_angles(count)
+        cameras = turntable_cameras(intrinsics, angles, distance=320.0, height=180.0,
+                                    target_z=self.AIM)
+        shape = synthetic.demo_object(height=self.OBJECT_HEIGHT,
+                                      base_radius=self.DIAMETER / 2)
+        points = synthetic.sample_solid(shape, (-60.0, -60.0, 0.0), (60.0, 60.0, 120.0),
+                                        resolution=70)
+        photos, masks = synthetic.render_solid_photos(cameras, points)
+        rig = TurntableRig(distance=320.0, height=180.0, object_diameter=80.0,
+                           object_height=object_height or self.OBJECT_HEIGHT)
+        session = CaptureSession(self.directory, rig=rig, field_of_view=55.0)
+        for index, (photo, angle) in enumerate(zip(photos, angles)):
+            if index in spoil:
+                # a photo in which the object cannot be told from the background any more
+                photo = np.full(photo.shape, 60, dtype=np.uint8)
+            name = "shot_{:03d}.png".format(index)
+            save_image(os.path.join(self.directory, name), photo)
+            session.add_shot(name, angle)
+        session.save()
+        return session
+
+    def test_a_scan_from_photos_on_disk(self):
+        if not available_backends():
+            self.skipTest("no image backend is available")
+        session = self._write_session()
+        config = ReconstructionConfig(resolution=70, coarse_resolution=28)
+        result = reconstruct(session, config=config)
+        self.assertAlmostEqual(result.mesh.size[0], self.DIAMETER, delta=8.0)
+        self.assertAlmostEqual(result.mesh.size[2], self.OBJECT_HEIGHT, delta=10.0)
+        self.assertEqual(result.statistics["used_photos"], 16)
+
+    def test_a_single_useless_photo_is_ignored(self):
+        if not available_backends():
+            self.skipTest("no image backend is available")
+        session = self._write_session(spoil=(5,))
+        config = ReconstructionConfig(resolution=60, coarse_resolution=24)
+        result = reconstruct(session, config=config)
+        self.assertLess(result.statistics["used_photos"], 16)
+        self.assertAlmostEqual(result.mesh.size[2], self.OBJECT_HEIGHT, delta=12.0)
+
+    def test_an_overstated_object_height_is_corrected(self):
+        if not available_backends():
+            self.skipTest("no image backend is available")
+        # the search volume is often chosen much bigger than the object, which used to move
+        # the assumed aim of the camera - and with it the shape of the whole model
+        session = self._write_session(object_height=self.OBJECT_HEIGHT * 1.6)
+        config = ReconstructionConfig(resolution=60, coarse_resolution=24, auto_aim=False)
+        without = reconstruct(session, config=config).mesh.size[2]
+        config = ReconstructionConfig(resolution=60, coarse_resolution=24, auto_aim=True)
+        with_estimate = reconstruct(session, config=config).mesh.size[2]
+        self.assertLess(abs(with_estimate - self.OBJECT_HEIGHT),
+                        abs(without - self.OBJECT_HEIGHT))
+
+    def test_the_debug_directory_explains_the_result(self):
+        if not available_backends():
+            self.skipTest("no image backend is available")
+        session = self._write_session(count=8)
+        debug = os.path.join(self.directory, "debug")
+        prepared = prepare_masks(session.image_paths, session.background_path,
+                                 config=ReconstructionConfig(debug_directory=debug))
+        self.assertEqual(len(prepared), 8)
+        self.assertTrue(all(mask.any() for mask in prepared.masks))
+        names = sorted(os.listdir(debug))
+        self.assertEqual(len([name for name in names if name.startswith("overlay_")]), 8)
+        self.assertEqual(len([name for name in names if name.startswith("mask_")]), 8)
+        with open(os.path.join(debug, "report.txt")) as source:
+            report = source.read()
+        self.assertIn("separation method:", report)
+        self.assertIn("shot_000.png", report)
+
+    def test_a_textured_model_is_written_next_to_the_photos(self):
+        if not available_backends():
+            self.skipTest("no image backend is available")
+        session = self._write_session(count=10)
+        config = ReconstructionConfig(resolution=50, coarse_resolution=24, texture=True,
+                                      texture_config=TextureConfig(size=64))
+        result = reconstruct(session, config=config)
+        self.assertTrue(result.has_texture)
+        result.write_obj(os.path.join(self.directory, "model.obj"))
+        for name in ("model.obj", "model.mtl", "model.png"):
+            self.assertTrue(os.path.isfile(os.path.join(self.directory, name)), name)
+
+
+@requires_numpy
 class TestSession(pycam.Test.PycamTestCase):
 
     def setUp(self):
@@ -505,6 +614,199 @@ class TestPreview(pycam.Test.PycamTestCase):
     def test_rendering_an_empty_model(self):
         image = preview.render_points(np.zeros((0, 3)), size=(20, 20))
         self.assertEqual(image.shape, (20, 20, 3))
+
+
+@requires_numpy
+class TestDifficultPhotos(pycam.Test.PycamTestCase):
+    """ the situations that make a silhouette of a real photo hard to find """
+
+    WIDTH = 240
+    HEIGHT = 180
+
+    def _scene(self, with_object=True, exposure=1.0, seed=0):
+        generator = np.random.default_rng(seed)
+        rows, columns = np.mgrid[0:self.HEIGHT, 0:self.WIDTH]
+        # a sheet of paper that is lit from one side
+        paper = 190 - 50 * (columns / self.WIDTH) - 20 * (rows / self.HEIGHT)
+        image = np.dstack([paper, paper * 0.99, paper * 0.95])
+        expected = np.zeros((self.HEIGHT, self.WIDTH), dtype=bool)
+        if with_object:
+            center = (self.HEIGHT * 0.55, self.WIDTH * 0.5)
+            expected = ((((rows - center[0]) / (self.HEIGHT * 0.3)) ** 2
+                         + ((columns - center[1]) / (self.WIDTH * 0.12)) ** 2) <= 1.0)
+            image[expected] = np.array((120.0, 95.0, 70.0))
+            # the shadow that the object casts onto the paper next to it
+            shadow = ((((rows - center[0] - 35) / (self.HEIGHT * 0.14)) ** 2
+                       + ((columns - center[1] - 40) / (self.WIDTH * 0.2)) ** 2) <= 1.0)
+            image[shadow & ~expected] *= 0.6
+        # an overexposed area in the corner, which covers more pixels than the object
+        glare = ((((rows - self.HEIGHT * 0.12) / (self.HEIGHT * 0.32)) ** 2
+                  + ((columns - self.WIDTH * 0.1) / (self.WIDTH * 0.25)) ** 2) <= 1.0)
+        image[glare] = np.minimum(image[glare] * 1.35 + 40, 255)
+        image = image * exposure + generator.normal(0.0, 2.0, image.shape)
+        return np.clip(image, 0, 255).astype(np.uint8), expected
+
+    @staticmethod
+    def _agreement(mask, expected):
+        union = float((mask | expected).sum())
+        return float((mask & expected).sum()) / union if union else 0.0
+
+    def test_the_shadow_is_not_part_of_the_object(self):
+        photo, expected = self._scene()
+        reference, _ = self._scene(with_object=False, seed=1)
+        without = extract_mask(photo, background=reference,
+                               config=SilhouetteConfig(method="background",
+                                                       shadow_tolerance=0.0))
+        with_removal = extract_mask(photo, background=reference,
+                                    config=SilhouetteConfig(method="background"))
+        self.assertGreater(self._agreement(with_removal, expected), 0.9)
+        self.assertGreater(self._agreement(with_removal, expected),
+                           self._agreement(without, expected) + 0.1)
+
+    def test_shadow_pixels_keep_the_color_of_the_background(self):
+        background = np.full((4, 4, 3), 200, dtype=np.uint8)
+        image = np.full((4, 4, 3), 200, dtype=np.uint8)
+        image[1] = (120, 120, 120)  # a shadow: every channel is darkened equally
+        image[2] = (120, 200, 200)  # a red-ish object: only one channel changes
+        found = shadow_pixels(image, background)
+        self.assertTrue(found[1].all())
+        self.assertFalse(found[2].any())
+
+    def test_a_bright_corner_does_not_win_against_the_object(self):
+        photo, expected = self._scene()
+        centered = extract_mask(photo, config=SilhouetteConfig(method="chroma"))
+        biggest = extract_mask(photo, config=SilhouetteConfig(method="chroma",
+                                                              prefer_center=False))
+        self.assertGreater(self._agreement(centered, expected), 0.9)
+        self.assertLess(self._agreement(biggest, expected), 0.5)
+
+    def test_a_changed_exposure_does_not_swallow_the_photo(self):
+        photo, expected = self._scene(exposure=1.12)
+        reference, _ = self._scene(with_object=False, exposure=1.0, seed=1)
+        config = SilhouetteConfig(method="background", threshold=12.0)
+        self.assertGreater(self._agreement(extract_mask(photo, background=reference,
+                                                        config=config), expected), 0.9)
+        # without the correction the whole photo differs from the reference by more than the
+        # threshold, so everything would be taken for the object
+        config = SilhouetteConfig(method="background", threshold=12.0, match_exposure=False)
+        uncorrected = extract_mask(photo, background=reference, config=config)
+        self.assertGreater(uncorrected.mean(), 0.5)
+
+    def test_the_method_is_chosen_automatically(self):
+        photo, _ = self._scene()
+        reference, _ = self._scene(with_object=False, seed=1)
+        method, scores = choose_method([photo], background=reference)
+        self.assertEqual(method, "background")
+        self.assertGreater(scores["background"], scores["threshold"])
+
+    def test_a_plausible_silhouette_is_rated_higher(self):
+        photo, expected = self._scene()
+        noise = np.zeros((self.HEIGHT, self.WIDTH), dtype=bool)
+        noise[::7, ::5] = True
+        self.assertGreater(score_mask(expected), 0.5)
+        self.assertLess(score_mask(noise), score_mask(expected))
+        self.assertEqual(score_mask(np.zeros_like(expected)), 0.0)
+
+    def test_the_region_in_the_middle_is_kept(self):
+        mask = np.zeros((100, 100), dtype=bool)
+        mask[35:65, 35:65] = True        # the object in the middle
+        mask[0:30, 0:40] = True          # a bigger distraction in the corner
+        selected = select_object_component(mask)
+        self.assertTrue(selected[50, 50])
+        self.assertFalse(selected[10, 10])
+        biggest = select_object_component(mask, prefer_center=False)
+        self.assertTrue(biggest[10, 10])
+
+
+@requires_numpy
+class TestTexturing(pycam.Test.PycamTestCase):
+    """ the UV mapping and the texture that is painted onto it """
+
+    RADIUS = 30.0
+    HEIGHT = 90.0
+
+    def _scan(self, count=16, width=240, height=180):
+        intrinsics = CameraIntrinsics.from_fov(width, height, 60.0)
+        cameras = turntable_cameras(intrinsics, turntable_angles(count), distance=300.0,
+                                    height=130.0, target_z=self.HEIGHT / 2)
+        photos, masks = synthetic.render_textured_photos(cameras, self.RADIUS, self.HEIGHT)
+        result = reconstruct_from_masks(cameras, masks, (-40.0, -40.0, 0.0),
+                                        (40.0, 40.0, 100.0),
+                                        config=ReconstructionConfig(resolution=70,
+                                                                    center_model=False))
+        return cameras, photos, masks, result
+
+    def test_the_uv_map_covers_the_whole_texture(self):
+        mesh = Mesh([(10.0, 0.0, 0.0), (0.0, 10.0, 5.0), (-10.0, 0.0, 10.0)], [(0, 1, 2)])
+        mapped = cylindrical_uv(mesh)
+        self.assertEqual(len(mapped.uv), len(mapped.vertices))
+        self.assertTrue((mapped.uv[:, 1] >= 0).all() and (mapped.uv[:, 1] <= 1).all())
+        # the height of a vertex decides its vertical texture coordinate
+        lowest = np.argmin(mapped.vertices[:, 2])
+        self.assertAlmostEqual(float(mapped.uv[lowest, 1]), 0.0)
+
+    def test_the_seam_does_not_stretch_across_the_texture(self):
+        _, _, _, result = self._scan(count=12)
+        mapped = cylindrical_uv(result.mesh)
+        corners = mapped.uv[mapped.faces][:, :, 0]
+        widths = corners.max(axis=1) - corners.min(axis=1)
+        # without the split at the seam some triangles would span the whole texture
+        self.assertLess(float(widths.max()), 0.5)
+        self.assertGreater(len(mapped.vertices), len(result.mesh.vertices))
+        self.assertTrue(mapped.is_watertight())
+
+    def test_the_texture_shows_the_photographed_colors(self):
+        cameras, photos, masks, result = self._scan()
+        mesh = texture_mesh(result.mesh, cameras, photos, masks=masks, grid=result.grid,
+                            config=TextureConfig(size=256))
+        self.assertTrue(mesh.has_texture)
+        size = mesh.texture.shape[0]
+        columns = np.clip((np.mod(mesh.uv[:, 0], 1.0) * (size - 1)).round().astype(int),
+                          0, size - 1)
+        rows = np.clip((mesh.uv[:, 1] * (size - 1)).round().astype(int), 0, size - 1)
+        sampled = mesh.texture[rows, columns].astype(float)
+        expected = synthetic.cylinder_surface_color(mesh.vertices, self.HEIGHT)
+        # the lid is stretched by a cylindrical projection - judge the side wall
+        side = np.hypot(mesh.vertices[:, 0], mesh.vertices[:, 1]) > 0.8 * self.RADIUS
+        side &= (mesh.vertices[:, 2] > 10.0) & (mesh.vertices[:, 2] < self.HEIGHT - 10.0)
+        self.assertGreater(int(side.sum()), 100)
+        error = np.abs(sampled[side] - expected[side]).mean()
+        self.assertLess(error, 12.0)
+
+    def test_a_texture_needs_texture_coordinates(self):
+        _, photos, masks, result = self._scan(count=12)
+        self.assertRaises(ValueError, bake_texture, result.mesh, [], [])
+
+    def test_the_model_keeps_its_texture_while_it_is_moved(self):
+        cameras, photos, masks, result = self._scan(count=12)
+        mesh = texture_mesh(result.mesh, cameras, photos, masks=masks, grid=result.grid,
+                            config=TextureConfig(size=64))
+        moved = mesh.translated((5.0, 0.0, 0.0)).scaled(2.0).centered_on_origin()
+        self.assertTrue(moved.has_texture)
+        self.assertEqual(len(moved.uv), len(moved.vertices))
+        self.assertTrue(np.allclose(moved.uv, mesh.uv))
+
+    def test_writing_an_obj_file_with_its_texture(self):
+        cameras, photos, masks, result = self._scan(count=12)
+        mesh = texture_mesh(result.mesh, cameras, photos, masks=masks, grid=result.grid,
+                            config=TextureConfig(size=64))
+        directory = tempfile.mkdtemp()
+        try:
+            name = mesh.write_obj(os.path.join(directory, "scan.obj"))
+            self.assertTrue(os.path.isfile(os.path.join(directory, "scan.mtl")))
+            self.assertTrue(os.path.isfile(os.path.join(directory, "scan.png")))
+            with open(name) as source:
+                content = source.read()
+            self.assertIn("mtllib scan.mtl", content)
+            self.assertEqual(content.count("\nvt "), len(mesh.vertices))
+            # every corner of a triangle refers to its own texture coordinate
+            faces = [line for line in content.splitlines() if line.startswith("f ")]
+            self.assertEqual(len(faces), len(mesh.faces))
+            self.assertIsNotNone(re.match(r"^f (\d+)/\1 (\d+)/\2 (\d+)/\3$", faces[0]))
+            with open(os.path.join(directory, "scan.mtl")) as source:
+                self.assertIn("map_Kd scan.png", source.read())
+        finally:
+            shutil.rmtree(directory)
 
 
 if __name__ == "__main__":

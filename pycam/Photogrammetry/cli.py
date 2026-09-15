@@ -31,6 +31,7 @@ from pycam.Photogrammetry.pipeline import ReconstructionConfig, reconstruct
 from pycam.Photogrammetry.session import (CaptureSession, DEFAULT_FIELD_OF_VIEW, SESSION_FILENAME,
                                           TurntableRig, load_session, session_from_directory)
 from pycam.Photogrammetry.silhouette import MASK_METHODS, SilhouetteConfig
+from pycam.Photogrammetry.texturing import TextureConfig
 import pycam.Utils.log
 
 _log = pycam.Utils.log.get_logger()
@@ -92,10 +93,30 @@ def _add_reconstruction_arguments(parser):
                        help="do not move the result onto the center of the X/Y plane")
     group.add_argument("--allow-cropped-photos", action="store_true",
                        help="the object may extend beyond the border of the photos")
+    group.add_argument("--no-auto-aim", action="store_true",
+                       help="do not determine the height that the camera is aimed at from the "
+                            "photos")
+    group.add_argument("--keep-outlier-photos", action="store_true",
+                       help="use every photo, even if its silhouette differs from the others")
+    group.add_argument("--refine-edges", dest="refine_edges", action="store_true", default=None,
+                       help="always follow the real edges of the object (needs OpenCV)")
+    group.add_argument("--no-refine-edges", dest="refine_edges", action="store_false",
+                       help="never move the silhouette onto the edges of the object")
+    group.add_argument("--no-shadow-removal", action="store_true",
+                       help="keep the shadow of the object in the silhouette")
     group.add_argument("--debug-directory",
                        help="write the detected silhouettes into this directory")
     group.add_argument("--preview",
                        help="write a rendered image of the result into this file")
+    texture = parser.add_argument_group("texture (UV mapping)")
+    texture.add_argument("--texture", dest="texture", action="store_true", default=None,
+                         help="paint the photos onto the model (default for .obj output)")
+    texture.add_argument("--no-texture", dest="texture", action="store_false",
+                         help="only build the shape")
+    texture.add_argument("--texture-size", type=int, default=1024,
+                         help="edge length of the texture in pixels")
+    texture.add_argument("--texture-views", type=int, default=3,
+                         help="how many photos are mixed for one point of the surface")
 
 
 def _get_rig(args):
@@ -104,8 +125,22 @@ def _get_rig(args):
                         object_height=args.object_height)
 
 
+def _wants_texture(args):
+    """ a texture is built on request - and by default whenever an OBJ file is written """
+    if getattr(args, "texture", None) is not None:
+        return bool(args.texture)
+    output = getattr(args, "output", None) or ""
+    return output.lower().endswith(".obj")
+
+
 def _get_config(args):
     silhouette = SilhouetteConfig(method=args.method, threshold=args.threshold)
+    if getattr(args, "refine_edges", None) is not None:
+        silhouette.refine_edges = bool(args.refine_edges)
+    if getattr(args, "no_shadow_removal", False):
+        silhouette.shadow_tolerance = 0.0
+    texture_config = TextureConfig(size=getattr(args, "texture_size", 1024),
+                                   views=getattr(args, "texture_views", 3))
     return ReconstructionConfig(resolution=args.resolution,
                                 max_image_size=args.max_image_size,
                                 silhouette=silhouette,
@@ -114,7 +149,11 @@ def _get_config(args):
                                 mesh_smoothing=args.smoothing,
                                 object_size=args.object_size,
                                 center_model=not args.keep_position,
-                                debug_directory=args.debug_directory)
+                                debug_directory=args.debug_directory,
+                                drop_outlier_views=not args.keep_outlier_photos,
+                                auto_aim=not args.no_auto_aim,
+                                texture=_wants_texture(args),
+                                texture_config=texture_config)
 
 
 def _progress_printer(quiet=False):
@@ -138,6 +177,9 @@ def _write_result(result, output, ascii_stl=False, preview_file=None):
     if output.lower().endswith(".obj"):
         result.mesh.write_obj(output)
     else:
+        if result.mesh.has_texture:
+            print("note: an STL file cannot store a texture - write an .obj file instead",
+                  file=sys.stderr)
         result.mesh.write_stl(output, binary=not ascii_stl)
     if preview_file:
         from pycam.Photogrammetry.images import save_image
@@ -149,6 +191,10 @@ def _write_result(result, output, ascii_stl=False, preview_file=None):
     for warning in result.warnings:
         print("warning: {}".format(warning), file=sys.stderr)
     print("written to {}".format(output))
+    if result.mesh.has_texture and output.lower().endswith(".obj"):
+        base = os.path.splitext(output)[0]
+        print("texture: {} and {}".format(base + ".mtl",
+                                          result.mesh.texture_name or (base + ".png")))
 
 
 def _load_or_build_session(directory, args):
@@ -215,6 +261,66 @@ def _command_capture(args):
     return 0
 
 
+def _command_diagnose(args):
+    """ report what the silhouette extraction sees - the first step when a model looks wrong """
+    from pycam.Photogrammetry.pipeline import prepare_masks
+    session = _load_or_build_session(args.directory, args)
+    config = _get_config(args)
+    if not config.debug_directory:
+        config.debug_directory = os.path.join(session.directory, "debug")
+    prepared = prepare_masks(session.image_paths, session.background_path, config=config,
+                             progress=_progress_printer(args.quiet))
+    print("{} photos, reference photo: {}".format(len(prepared), session.background or "none"))
+    print("separation method: {}".format(prepared.method))
+    print("{:<28s} {:>8s} {:>8s} {:>8s} {:>7s}"
+          .format("photo", "area", "fill", "offset", "rating"))
+    for item in prepared.qualities:
+        print("{:<28s} {:8.4f} {:8.2f} {:8.2f} {:7.2f}"
+              .format(item["name"][:28], item["area_fraction"], item["fill_ratio"],
+                      item["center_offset"], item["score"]))
+    for advice in _diagnose_advice(session, prepared):
+        print("* {}".format(advice))
+    print("the silhouettes and their overlays are in {}".format(config.debug_directory))
+    return 0
+
+
+def _diagnose_advice(session, prepared):
+    """ turn the measured silhouettes into concrete advice """
+    advice = []
+    scores = [item["score"] for item in prepared.qualities]
+    areas = [item["area_fraction"] for item in prepared.qualities]
+    empty = [item for item in prepared.qualities if item["area_fraction"] <= 0]
+    huge = [item for item in prepared.qualities if item["area_fraction"] > 0.6]
+    border = [item for item in prepared.qualities if item["touches_border"]]
+    if empty:
+        advice.append("no object was found in {} photo(s) - there the object has almost the "
+                      "same color as the background".format(len(empty)))
+    if huge:
+        advice.append("the silhouette covers most of {} photo(s) - the background was not "
+                      "recognized as such".format(len(huge)))
+    if len(border) > len(prepared.qualities) / 4:
+        advice.append("the object touches the border of {} photo(s) - move the camera further "
+                      "away or zoom out".format(len(border)))
+    if not session.background:
+        advice.append("take one photo of the *empty* turntable and pass it as --background: "
+                      "this is by far the biggest improvement for difficult objects")
+    if scores and (sum(scores) / len(scores) < 0.4):
+        advice.append("the silhouettes do not look like a compact object - use an evenly "
+                      "colored background, avoid a strong shadow next to the object and keep "
+                      "the exposure of the camera fixed")
+    positive = [value for value in areas if value > 0]
+    if len(positive) > 3:
+        spread = max(positive) / max(min(positive), 1e-9)
+        if spread > 3.0:
+            advice.append("the size of the silhouette changes by a factor of {:.1f} over the "
+                          "turn - something moved, or single photos were separated wrongly"
+                          .format(spread))
+    if not advice:
+        advice.append("the silhouettes look fine - if the model is still wrong, check "
+                      "--distance, --height and --fov of the capture setup")
+    return advice
+
+
 def _command_devices(args):
     from pycam.Photogrammetry.capture import list_devices
     devices = list_devices(args.maximum)
@@ -257,22 +363,32 @@ def _command_demo(args):
     shape = synthetic.demo_object(height=args.object_height * 0.75,
                                   base_radius=args.object_diameter * 0.25)
     points = synthetic.sample_solid(shape, *rig.bounds)
-    masks = synthetic.render_masks(cameras, points)
+    config = _get_config(args)
+    photos = None
+    if config.texture:
+        # a color that depends on the position makes the texture mapping visible
+        photos, masks = synthetic.render_solid_photos(
+            cameras, points,
+            lambda values: synthetic.cylinder_surface_color(values, args.object_height * 0.75))
+    else:
+        masks = synthetic.render_masks(cameras, points)
     print("{} virtual photos of a pawn shaped object".format(len(masks)))
     if args.write_photos:
-        _write_demo_photos(args, masks, rig)
-    result = reconstruct_from_masks(cameras, masks, *rig.bounds, config=_get_config(args),
-                                    progress=_progress_printer(args.quiet))
+        _write_demo_photos(args, masks, rig, photos)
+    result = reconstruct_from_masks(cameras, masks, *rig.bounds, config=config,
+                                    progress=_progress_printer(args.quiet), images=photos)
     _write_result(result, args.output, args.ascii, args.preview)
     return 0
 
 
-def _write_demo_photos(args, masks, rig):
+def _write_demo_photos(args, masks, rig, photos=None):
     from pycam.Photogrammetry import synthetic
     from pycam.Photogrammetry.capture import CaptureController
     controller = CaptureController(session=CaptureSession(args.write_photos, rig=rig,
                                                           field_of_view=args.fov))
-    for image, angle in zip(synthetic.render_photos(masks), turntable_angles(args.count)):
+    if photos is None:
+        photos = synthetic.render_photos(masks)
+    for image, angle in zip(photos, turntable_angles(args.count)):
         controller.store_shot(image, angle)
     print("virtual photos written to {}".format(controller.save()))
 
@@ -331,6 +447,16 @@ def get_parser():
     _add_rig_arguments(build)
     _add_reconstruction_arguments(build)
     build.set_defaults(func=_command_reconstruct)
+
+    diagnose = commands.add_parser("diagnose",
+                                   help="check why a scan does not produce the right model")
+    diagnose.add_argument("directory", help="a capture session or a directory of photos")
+    diagnose.add_argument("--sweep", type=float, default=360.0,
+                          help="rotation covered by the photos in degrees")
+    diagnose.add_argument("--background", help="photo of the empty turntable")
+    _add_rig_arguments(diagnose)
+    _add_reconstruction_arguments(diagnose)
+    diagnose.set_defaults(func=_command_diagnose, output="")
 
     devices = commands.add_parser("devices", help="list the available cameras")
     devices.add_argument("--maximum", type=int, default=6, help="highest camera index to probe")

@@ -56,7 +56,8 @@ MODULES = ("__init__.py",
            "Photogrammetry/session.py",
            "Photogrammetry/silhouette.py",
            "Photogrammetry/surfacenets.py",
-           "Photogrammetry/synthetic.py")
+           "Photogrammetry/synthetic.py",
+           "Photogrammetry/texturing.py")
 
 
 # the version of the APK when the repository tells us nothing

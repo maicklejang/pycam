@@ -32,14 +32,35 @@ class Mesh:
     The vertices are stored as an Nx3 array of coordinates, the faces as an Mx3 array of vertex
     indices.  The triangles are wound counterclockwise when seen from outside of the model (the
     common convention of STL files).
+
+    A mesh may also carry a texture: "uv" holds one texture coordinate per vertex and
+    "texture" the image they refer to (see pycam.Photogrammetry.texturing).
     """
 
-    def __init__(self, vertices, faces):
+    def __init__(self, vertices, faces, uv=None, texture=None, texture_name=None):
         self.vertices = np.asarray(vertices, dtype=np.float64).reshape(-1, 3)
         self.faces = np.asarray(faces, dtype=np.int64).reshape(-1, 3)
         if len(self.faces) > 0:
             if self.faces.min() < 0 or self.faces.max() >= len(self.vertices):
                 raise ValueError("the mesh contains face indices outside of the vertex list")
+        self.uv = None
+        if uv is not None:
+            self.uv = np.asarray(uv, dtype=np.float64).reshape(-1, 2)
+            if len(self.uv) != len(self.vertices):
+                raise ValueError("every vertex needs a texture coordinate ({} vertices, {} "
+                                 "coordinates)".format(len(self.vertices), len(self.uv)))
+        self.texture = None if texture is None else np.asarray(texture)
+        # without a name the texture is called like the model it belongs to
+        self.texture_name = None if texture_name is None else str(texture_name)
+
+    @property
+    def has_texture(self):
+        return (self.uv is not None) and (self.texture is not None)
+
+    def _derived(self, vertices, faces, uv=None):
+        """ return a mesh of the same kind, keeping the texture """
+        return Mesh(vertices, faces, uv=uv, texture=self.texture,
+                    texture_name=self.texture_name)
 
     def __len__(self):
         return len(self.faces)
@@ -48,7 +69,8 @@ class Mesh:
         return "Mesh({} vertices, {} triangles)".format(len(self.vertices), len(self.faces))
 
     def copy(self):
-        return Mesh(self.vertices.copy(), self.faces.copy())
+        return self._derived(self.vertices.copy(), self.faces.copy(),
+                             None if self.uv is None else self.uv.copy())
 
     @property
     def is_empty(self):
@@ -136,11 +158,23 @@ class Mesh:
             edges = np.unique(np.sort(edges, axis=1), axis=0)
         return edges
 
+    def welded_faces(self):
+        """ return the faces with vertices of identical position merged into one index
+
+        A textured mesh contains the vertices along the seam of the texture twice.  They do
+        describe the same point of the surface, so questions about the shape - is it closed?
+        which triangles are neighbors? - have to be answered on the merged version.
+        """
+        if len(self.vertices) == 0:
+            return self.faces
+        _, inverse = np.unique(np.round(self.vertices, 9), axis=0, return_inverse=True)
+        return inverse.reshape(-1)[self.faces]
+
     def is_watertight(self):
         """ check whether every edge is shared by exactly two consistently oriented triangles """
         if self.is_empty:
             return False
-        faces = self.faces
+        faces = self.welded_faces()
         directed = np.vstack((faces[:, (0, 1)], faces[:, (1, 2)], faces[:, (2, 0)]))
         # every directed edge has to show up exactly once ...
         _, directed_counts = np.unique(directed, axis=0, return_counts=True)
@@ -152,13 +186,14 @@ class Mesh:
 
     def flipped(self):
         """ return a copy with inverted triangle orientation """
-        return Mesh(self.vertices.copy(), self.faces[:, ::-1].copy())
+        return self._derived(self.vertices.copy(), self.faces[:, ::-1].copy(), self.uv)
 
     def translated(self, offset):
-        return Mesh(self.vertices + np.asarray(offset, dtype=float).reshape(3), self.faces)
+        return self._derived(self.vertices + np.asarray(offset, dtype=float).reshape(3),
+                             self.faces, self.uv)
 
     def scaled(self, factor):
-        return Mesh(self.vertices * float(factor), self.faces)
+        return self._derived(self.vertices * float(factor), self.faces, self.uv)
 
     def centered_on_origin(self, keep_bottom=True):
         """ move the model to the center of the X/Y plane
@@ -187,13 +222,19 @@ class Mesh:
         """
         if self.is_empty or iterations < 1:
             return self.copy()
-        edges = self.edges(unique=True)
+        # vertices that sit on top of each other - the two sides of a texture seam - have to
+        # move together, otherwise the model would crack open along that seam
+        welded, inverse = np.unique(np.round(self.vertices, 9), axis=0, return_inverse=True)
+        inverse = inverse.reshape(-1)
+        faces = inverse[self.faces]
+        edges = np.unique(np.sort(np.vstack((faces[:, (0, 1)], faces[:, (1, 2)],
+                                             faces[:, (2, 0)])), axis=1), axis=0)
         both = np.vstack((edges, edges[:, ::-1]))
         sources = both[:, 0]
         targets = both[:, 1]
-        counts = np.bincount(sources, minlength=len(self.vertices)).astype(float)
+        counts = np.bincount(sources, minlength=len(welded)).astype(float)
         counts[counts == 0] = 1.0
-        vertices = self.vertices.copy()
+        vertices = welded.astype(np.float64, copy=True)
         for index in range(2 * iterations):
             weight = shrink if (index % 2 == 0) else inflate
             neighbors = np.empty_like(vertices)
@@ -202,7 +243,7 @@ class Mesh:
                                                  minlength=len(vertices))
             neighbors /= counts[:, None]
             vertices += weight * (neighbors - vertices)
-        return Mesh(vertices, self.faces)
+        return self._derived(vertices[inverse], self.faces, self.uv)
 
     def remove_small_components(self, keep=1):
         """ keep only the "keep" biggest connected components (removes scanning artifacts)
@@ -240,10 +281,12 @@ class Mesh:
         faces = self.faces[selection]
         if len(faces) == 0:
             return Mesh(np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64))
+
         used = np.unique(faces)
         remap = np.full(len(self.vertices), -1, dtype=np.int64)
         remap[used] = np.arange(len(used))
-        return Mesh(self.vertices[used], remap[faces])
+        return self._derived(self.vertices[used], remap[faces],
+                             None if self.uv is None else self.uv[used])
 
     def write_stl(self, filename, binary=True, name="pycam-scan"):
         """ store the mesh as an STL file (the input format of most CAM and slicer tools) """
@@ -281,15 +324,66 @@ class Mesh:
         lines.append("")
         return os.linesep.join(lines)
 
-    def write_obj(self, filename):
+    def write_obj(self, filename, write_texture=True, material="scan"):
+        """ store the mesh as an OBJ file
+
+        A textured mesh is written as a set of three files: the OBJ itself, a material file
+        next to it and the texture as a PNG.  Everything the OBJ refers to is stored with a
+        relative name, so the three files can be moved together.
+
+        @param write_texture: also write the material and the image (if the mesh has a texture)
+        @returns: the name of the OBJ file
+        """
         filename = os.path.expanduser(str(filename))
+        base = os.path.splitext(os.path.basename(filename))[0]
+        directory = os.path.dirname(os.path.abspath(filename))
+        textured = self.has_texture and write_texture
+        material_name = None
+        if textured:
+            material_name = base + ".mtl"
+            texture_name = self.texture_name or (base + ".png")
+            self.write_texture(os.path.join(directory, texture_name))
+            self._write_material(os.path.join(directory, material_name), material, texture_name)
         with open(filename, "w") as out_file:
             out_file.write("# generated by PyCAM (pycam.Photogrammetry)\n")
+            if material_name:
+                out_file.write("mtllib {}\n".format(material_name))
             for vertex in self.vertices:
                 out_file.write("v {:.6f} {:.6f} {:.6f}\n".format(*vertex))
-            for face in self.faces + 1:
-                out_file.write("f {} {} {}\n".format(*face))
+            if self.uv is not None:
+                for coordinate in self.uv:
+                    # the vertical axis of a texture points upwards in an OBJ file
+                    out_file.write("vt {:.6f} {:.6f}\n".format(coordinate[0], coordinate[1]))
+            if material_name:
+                out_file.write("usemtl {}\n".format(material))
+            if self.uv is None:
+                for face in self.faces + 1:
+                    out_file.write("f {} {} {}\n".format(*face))
+            else:
+                for face in self.faces + 1:
+                    out_file.write("f {0}/{0} {1}/{1} {2}/{2}\n".format(*face))
         return filename
+
+    @staticmethod
+    def _write_material(filename, name, texture_name):
+        with open(filename, "w") as out_file:
+            out_file.write("# generated by PyCAM (pycam.Photogrammetry)\n")
+            out_file.write("newmtl {}\n".format(name))
+            # a plain unlit material: the photos already contain the lighting of the scene
+            out_file.write("Ka 1.000 1.000 1.000\n")
+            out_file.write("Kd 1.000 1.000 1.000\n")
+            out_file.write("Ks 0.000 0.000 0.000\n")
+            out_file.write("illum 1\n")
+            out_file.write("map_Kd {}\n".format(texture_name))
+        return filename
+
+    def write_texture(self, filename):
+        """ store the texture of the mesh as an image file """
+        if self.texture is None:
+            raise ValueError("this mesh has no texture")
+        from pycam.Photogrammetry.images import save_image
+        # an image starts in its upper left corner, a texture coordinate at the lower left one
+        return save_image(os.path.expanduser(str(filename)), self.texture[::-1])
 
     def to_pycam_model(self):
         """ convert the mesh into a PyCAM model that can be used for toolpath generation """
@@ -308,7 +402,10 @@ class Mesh:
     def describe(self):
         """ return a human readable summary of the mesh """
         low, high = self.bounds
-        return ("{} triangles, {} vertices, size {:.2f} x {:.2f} x {:.2f}, "
+        text = ("{} triangles, {} vertices, size {:.2f} x {:.2f} x {:.2f}, "
                 "volume {:.2f}, watertight: {}"
                 .format(len(self.faces), len(self.vertices), *(high - low),
                         self.volume, "yes" if self.is_watertight() else "no"))
+        if self.has_texture:
+            text += ", texture: {}x{}".format(self.texture.shape[1], self.texture.shape[0])
+        return text

@@ -202,6 +202,9 @@ class ScannerApplication:
         self.method = tkinter.StringVar(value="auto")
         ttk.Combobox(row, textvariable=self.method, values=list(MASK_METHODS), width=10,
                      state="readonly").pack(side="right")
+        self.texture = tkinter.BooleanVar(value=True)
+        ttk.Checkbutton(frame, text="paint the photos onto the model (OBJ)",
+                        variable=self.texture).pack(anchor="w", pady=(4, 0))
         self.reconstruct_button = ttk.Button(frame, text="build 3D model",
                                              command=self.start_reconstruction)
         self.reconstruct_button.pack(fill="x", pady=(8, 0))
@@ -391,7 +394,8 @@ class ScannerApplication:
             return
         self.session.save()
         config = ReconstructionConfig(resolution=int(self.resolution.get()),
-                                      silhouette=SilhouetteConfig(method=self.method.get()))
+                                      silhouette=SilhouetteConfig(method=self.method.get()),
+                                      texture=bool(self.texture.get()))
         self.busy = True
         self.reconstruct_button.state(["disabled"])
         self.log("building the model from {} photos ...".format(len(self.session)))
@@ -454,7 +458,11 @@ class ScannerApplication:
             return
         if filename.lower().endswith(".obj"):
             self.result.mesh.write_obj(filename)
+            if self.result.mesh.has_texture:
+                self.log("the material and the texture were written next to it")
         else:
+            if self.result.mesh.has_texture:
+                self.log("note: an STL file stores the shape only - use .obj for the colors")
             self.result.mesh.write_stl(filename)
         self.log("written to {}".format(filename))
 

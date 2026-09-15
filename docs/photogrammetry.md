@@ -98,20 +98,85 @@ The most important options:
 | --- | --- |
 | `--resolution` | number of voxels along the longest axis - more detail, but slower |
 | `--object-diameter` / `--object-height` | the volume that is searched for the object |
-| `--target-z` | the height that the camera is aimed at (default: the middle of the object) |
+| `--target-z` | the height that the camera is aimed at (default: measured, see below) |
 | `--method` | how the object is separated from the background (`background`, `chroma`, `threshold`) |
 | `--object-size` | scale the result until its largest horizontal extent matches a measured value |
 | `--max-missing-views` | tolerate a few photos in which the object was not detected properly |
+| `--texture` / `--no-texture` | paint the photos onto the model (see [below](#colors-and-uv-mapping)) |
 | `--debug-directory` | write the detected silhouettes as images - the first thing to look at when a result is wrong |
 
 The reconstruction reports warnings whenever something looks suspicious, e.g. when the object
 touches the border of a photo or when it does not fit into the search volume.
 
 
+## Colors and UV mapping
+
+With an OBJ file as the output the photos are painted onto the model:
+
+```
+pycam-photo3d reconstruct ~/scans/pawn --output pawn.obj
+```
+
+Three files are written: `pawn.obj` with the model and its texture coordinates, `pawn.mtl`
+with the material and `pawn.png` with the texture itself.  They belong together - copy all
+three.  An STL file can only store the shape, so `--texture` has no effect for it.
+
+The texture coordinates are a cylinder around the rotation axis of the turntable: the
+horizontal axis of the texture follows the rotation, the vertical one the height of the
+object.  The seam at the back of the object is split properly, so no triangle is stretched
+across the whole texture.  For every point of the surface the photos that really see it are
+picked - those that look at it from the front and are not blocked by another part of the
+object - and their colors are mixed.  Parts that no photo has seen (the bottom, deep dents)
+are filled in from their surroundings.
+
+| Option | Meaning |
+| --- | --- |
+| `--texture-size` | edge length of the texture in pixels (1024 by default) |
+| `--texture-views` | how many photos are mixed for one point of the surface |
+
+The lid of an object is stretched by the cylindrical mapping, which is the price for a
+texture without any cuts.  The shape itself is not affected by any of this.
+
+
+## When the model does not look like the object
+
+Nearly every disappointing result comes from the separation of object and background, not
+from the geometry.  Let PyCAM tell you what it sees:
+
+```
+pycam-photo3d diagnose ~/scans/pawn
+```
+
+The command rates every photo and writes two images per photo into a `debug` directory: the
+bare silhouette and an overlay of the silhouette on the photo.  Look at a few overlays - the
+red outline has to follow the object.  Typical findings:
+
+| What the overlay shows | What to do |
+| --- | --- |
+| the shadow next to the object is marked as well | light the object more evenly, or move it further away from the background |
+| a bright window, a lamp or the edge of the table is marked | take a reference photo of the empty turntable and pass it as `--background` |
+| the outline is far too big, sometimes the whole photo | the background is not uniform enough; a reference photo helps most |
+| only a part of the object is marked | increase the contrast to the background (a different sheet of paper) |
+| everything looks right, but the model is still wrong | check `--distance`, `--height` and `--fov`, see below |
+
+The following is done automatically and needs no options: the method is chosen by trying all
+of them on a few photos, the exposure drift between the photos is compensated, shadows are
+removed, the region in the *middle* of the photo is preferred over the biggest one, and
+single photos whose silhouette does not fit to the rest of the series are ignored.
+
+If the silhouettes are fine, the geometry of the setup is wrong.  The three numbers that
+matter are `--distance`, `--height` and `--fov`; they decide the scale and the proportions of
+the model.  The height that the camera is aimed at is measured from the photos themselves
+(switch it off with `--no-auto-aim`, or state it with `--target-z`).  Its value used to be
+derived from `--object-height`, so a generously chosen search volume made the model too high.
+If you know the size of the real object, `--object-size` fixes the scale afterwards.
+
+
 ## The Android application
 
 The same reconstruction runs on a phone: the app photographs the object, builds the model and
-stores it as an STL file next to the photos.  See [android/README.md](../android/README.md)
+stores it next to the photos - as an STL file and, with the texture switched on, additionally
+as `model.obj`, `model.mtl` and `model.png`.  See [android/README.md](../android/README.md)
 for the build instructions - the APK is built by the workflow "Build the Android app".
 
 The app can also be started on a desktop computer, which is the easiest way of looking at it:
@@ -167,6 +232,9 @@ model = result.mesh.to_pycam_model()
 * The bottom of the object (the side that stands on the turntable) is not visible and is closed
   with a flat face.
 * Transparent, mirroring and very dark objects are hard to separate from the background.
+* Where the carved volume touches itself along an edge only, the surface of the model is not
+  completely closed.  This is reported as a warning; a slightly different `--resolution`
+  usually avoids it.
 * The scale of the model depends on the values of `--distance` and `--height`.  If you did not
   measure them, use `--object-size` with a value that you measured on the real object.
 
