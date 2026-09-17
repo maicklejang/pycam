@@ -15,7 +15,7 @@ const PRODUCTS = [
   },
   {
     id: "p-basswood", materialId: "basswood", name: "바스우드 판재", badge: "입문 추천",
-    desc: "다이오드 장비에서도 잘 잘리는 저밀도 판재. 첫 연습용으로 좋습니다.",
+    desc: "저출력 장비에서도 여유 있게 잘리는 판재. 첫 연습용으로 좋습니다.",
     variants: [
       { id: "bass-2-300", label: "2mm / 300x200 / 10장", price: 14000, stock: "in" },
       { id: "bass-3-300", label: "3mm / 300x200 / 10장", price: 18000, stock: "in" },
@@ -31,7 +31,7 @@ const PRODUCTS = [
     ],
   },
   {
-    id: "p-acrylic-clear", materialId: "acrylic-cast", name: "캐스트 아크릴 (투명)", badge: "CO2 전용",
+    id: "p-acrylic-clear", materialId: "acrylic-cast", name: "캐스트 아크릴 (투명)",
     desc: "절단면이 맑게 떨어지는 캐스트(주조) 아크릴. 보호필름 부착 상태로 발송합니다.",
     variants: [
       { id: "acc-3-300", label: "3mm / 300x200 / 3장", price: 15000, stock: "in" },
@@ -40,8 +40,8 @@ const PRODUCTS = [
     ],
   },
   {
-    id: "p-acrylic-dark", materialId: "acrylic-dark", name: "검정·컬러 아크릴", badge: "다이오드 가능",
-    desc: "청색 다이오드로도 절단 가능한 불투명 아크릴입니다.",
+    id: "p-acrylic-dark", materialId: "acrylic-dark", name: "검정·컬러 아크릴", badge: "명패용",
+    desc: "조각 대비가 강해 명패·간판에 많이 쓰이는 불투명 아크릴입니다.",
     variants: [
       { id: "acd-2-300", label: "2mm / 300x200 / 3장", price: 14000, stock: "in" },
       { id: "acd-3-300", label: "3mm / 300x200 / 3장", price: 17000, stock: "in" },
@@ -77,7 +77,7 @@ const PRODUCTS = [
   },
   {
     id: "p-anodized", materialId: "anodized-alu", name: "아노다이즈드 알루미늄 명찰",
-    desc: "CO2·파이버 모두 마킹 가능한 아노다이징 판. 검정/은색.",
+    desc: "CO2·파이버 마킹기 모두 사용 가능한 아노다이징 판. 검정/은색.",
     variants: [
       { id: "ano-name", label: "명찰용 70x30 / 10개", price: 14000, stock: "in" },
       { id: "ano-card", label: "카드 86x54 / 5개", price: 16000, stock: "in" },

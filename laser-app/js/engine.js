@@ -42,8 +42,9 @@ const LaserEngine = (function (deps) {
     const pct = Math.min(mat.cut.powerPct[machine.type] || 100, info.powerCapPct);
     const P = (machine.watt * pct) / 100;
     const Emax = (info.maxPasses * P) / info.minSpeed;
-    const t = Math.pow(Emax / (mat.cut.k * f), 1 / mat.cut.exp);
-    return Math.min(t, mat.cut.maxThickness[machine.type] || 0);
+    const tEnergy = Math.pow(Emax / (mat.cut.k * f), 1 / mat.cut.exp);
+    const tPower = P / (mat.cut.wPerMm || 3.5);
+    return Math.min(tEnergy, tPower, mat.cut.maxThickness[machine.type] || 0);
   }
 
   function calcCut(mat, thickness, machine, opts) {
@@ -61,8 +62,10 @@ const LaserEngine = (function (deps) {
     }
     const f = mat.factor[machine.type];
     if (!f) {
-      res.reason = `${info.label} 장비로는 ${mat.name}을(를) 절단할 수 없습니다.`;
-      res.alternatives = suggestAlternatives(mat, "cut");
+      res.reason = machine.type === "fiber"
+        ? `파이버 마킹기는 금속 마킹 전용입니다. ${mat.name} 절단에는 CO2 장비가 필요합니다.`
+        : `${info.label} 장비로는 ${mat.name}을(를) 절단할 수 없습니다.`;
+      res.alternatives = suggestAlternatives(mat, "cut", machine);
       return res;
     }
     const hardMax = mat.cut.maxThickness[machine.type] || 0;
@@ -74,6 +77,19 @@ const LaserEngine = (function (deps) {
     const E = mat.cut.k * Math.pow(thickness, mat.cut.exp) * f;
     let powerPct = Math.min(mat.cut.powerPct[machine.type] || 100, info.powerCapPct);
     let P = (machine.watt * powerPct) / 100;
+
+    /* 에너지가 아무리 쌓여도 순간 출력이 모자라면 관통되지 않는다 */
+    const wPerMm = mat.cut.wPerMm || 3.5;
+    const needW = wPerMm * thickness;
+    if (P < needW) {
+      const needMachine = Math.ceil(needW / (powerPct / 100) / 10) * 10;
+      res.reason = `${thickness}mm ${mat.name} 절단에는 유효 출력 ${Math.round(needW)}W 이상이 필요합니다. `
+        + `현재 ${machine.watt}W 의 ${powerPct}% = ${Math.round(P)}W 로는 여러 번 지나가도 아래쪽이 관통되지 않고 절단면만 탑니다. `
+        + `약 ${needMachine}W 급 이상 장비가 필요합니다.`;
+      res.maxThickness = Math.round(maxCuttableThickness(mat, machine) * 10) / 10;
+      return res;
+    }
+
     let passes = 1;
     let v = P / E;
 
@@ -107,14 +123,14 @@ const LaserEngine = (function (deps) {
     res.kerf = mat.cut.kerf;
     res.airAssist = true;
     res.secPerMeter = Math.round((1000 / v) * passes);
-    res.focus = machine.type === "diode" ? "소재 표면" : thickness >= 6 ? "표면에서 두께의 1/3 아래" : "소재 표면";
+    res.focus = thickness >= 6 ? "표면에서 두께의 1/3 아래" : "소재 표면";
 
     if (capped) {
       const maxT = maxCuttableThickness(mat, machine);
       res.warnings.push(
         `출력이 부족합니다. ${machine.watt}W ${info.label} 장비의 현실적인 ${mat.name} 절단 한계는 약 ${Math.round(maxT * 10) / 10}mm입니다. 패스를 더 늘리면 절단면이 심하게 타고 폭이 벌어집니다.`
       );
-      res.alternatives = suggestAlternatives(mat, "cut");
+      res.alternatives = suggestAlternatives(mat, "cut", machine);
     }
     if (res.level === "slow") {
       res.notes.push("패스가 많습니다. 한 패스마다 초점을 다시 맞출 필요는 없지만, 소재가 움직이지 않게 고정하세요.");
@@ -151,7 +167,8 @@ const LaserEngine = (function (deps) {
     /* 파이버 장비는 주파수·해치가 포함된 프리셋을 사용 */
     if (machine.type === "fiber") {
       if (!mat.fiber) {
-        res.reason = `${mat.name}은(는) 파이버 레이저 대상 소재가 아닙니다. CO2 또는 다이오드 장비를 사용하세요.`;
+        res.reason = `${mat.name}은(는) 파이버 마킹기 대상 소재가 아닙니다. CO2 장비를 사용하세요.`;
+        res.alternatives = suggestAlternatives(mat, "engrave", machine);
         return res;
       }
       const scale = clamp(machine.watt / 20, 0.5, 3);
@@ -164,7 +181,7 @@ const LaserEngine = (function (deps) {
       res.passes = mat.fiber.passes;
       res.freqKhz = mat.fiber.freqKhz;
       res.hatchMm = mat.fiber.hatchMm;
-      res.dpi = Math.round(25.4 / mat.fiber.hatchMm);
+      res.secPer100mm2 = Math.round(((100 / mat.fiber.hatchMm) * 100 / v) * 1.15 * mat.fiber.passes);
       res.notes.push(`해치 간격 ${mat.fiber.hatchMm}mm, 주파수 ${mat.fiber.freqKhz}kHz 기준입니다. 색 마킹(MOPA)은 주파수를 크게 바꿔가며 시험하세요.`);
       return res;
     }
@@ -172,7 +189,7 @@ const LaserEngine = (function (deps) {
     const ef = mat.engraveFactor[machine.type];
     if (!ef) {
       res.reason = `${info.label} 장비로는 ${mat.name}에 조각할 수 없습니다.`;
-      res.alternatives = suggestAlternatives(mat, "engrave");
+      res.alternatives = suggestAlternatives(mat, "engrave", machine);
       return res;
     }
 
@@ -211,17 +228,27 @@ const LaserEngine = (function (deps) {
     if (res.level === "slow") {
       res.warnings.push("너무 느립니다. DPI를 낮추거나 출력을 높이지 않으면 100x100mm 한 장에 매우 오래 걸립니다.");
     }
-    if (machine.type === "diode" && mat.category === "wood") {
-      res.notes.push("다이오드는 목재 조각에 유리합니다. 농도가 옅으면 출력보다 속도를 먼저 낮추세요.");
+    if (mat.category === "wood") {
+      res.notes.push("농도가 옅으면 출력을 올리기보다 속도를 먼저 낮추세요. 그을음이 덜 생깁니다.");
     }
     return res;
   }
 
-  function suggestAlternatives(mat, op) {
-    return MATS.filter((m) => m.id !== mat.id && m.category === mat.category)
-      .filter((m) => (op === "cut" ? m.cut : m.engrave))
-      .slice(0, 3)
-      .map((m) => ({ id: m.id, name: m.name }));
+  /* 지금 장비로 실제 가능한 소재만 추천한다 */
+  function suggestAlternatives(mat, op, machine) {
+    const doable = (m) => {
+      if (op === "cut") return !!m.cut && !!m.factor[machine.type];
+      if (machine.type === "fiber") return !!m.fiber;
+      return !!m.engrave && !!m.engraveFactor[machine.type];
+    };
+    let pool = MATS.filter((m) => m.id !== mat.id && doable(m));
+    /* 그 가공 자체가 불가능한 장비라면(예: 파이버로 절단) 이 장비가 할 수 있는 일을 보여준다 */
+    if (!pool.length && op === "cut") {
+      pool = MATS.filter((m) => m.id !== mat.id &&
+        (machine.type === "fiber" ? !!m.fiber : !!m.engrave && !!m.engraveFactor[machine.type]));
+    }
+    const same = pool.filter((m) => m.category === mat.category);
+    return (same.length ? same : pool).slice(0, 3).map((m) => ({ id: m.id, name: m.name }));
   }
 
   function calculate(o) {

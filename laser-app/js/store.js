@@ -12,7 +12,7 @@ const Store = (function () {
     return value;
   }
 
-  const DEFAULT_MACHINE = { presetId: "diode-10", label: "다이오드 10W (광출력)", type: "diode", watt: 10, maxSpeed: 250 };
+  const DEFAULT_MACHINE = { presetId: "co2-60", label: "CO2 60W", type: "co2", watt: 60, maxSpeed: 400 };
 
   return {
     get, set,

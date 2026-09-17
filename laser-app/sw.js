@@ -1,5 +1,5 @@
 /* 오프라인 캐시 — 파일을 수정하면 CACHE 버전을 올리세요. */
-const CACHE = "laser-guide-v1.0.0";
+const CACHE = "laser-guide-v1.1.0";
 const ASSETS = [
   "./",
   "./index.html",

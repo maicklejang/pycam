@@ -17,6 +17,6 @@ const SHOP_CONFIG = {
   notice: "표시된 값은 시작값입니다. 반드시 자투리 소재로 테스트 후 본작업하세요.",
 };
 
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.1.0";
 
 if (typeof module !== "undefined") module.exports = { SHOP_CONFIG, APP_VERSION };

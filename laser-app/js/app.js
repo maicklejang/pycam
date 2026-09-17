@@ -265,20 +265,34 @@
 
     if (!r.ok) {
       const alts = (r.alternatives || []).map((a) => `<button class="chip" data-alt="${a.id}">${esc(a.name)}</button>`).join("");
+      const fit = r.maxThickness
+        ? mat.thicknesses.filter((t) => t <= r.maxThickness).sort((a, b) => b - a)[0]
+        : null;
       box.innerHTML = `
         <div class="card result bad">
           <h3>이 조합은 불가능합니다</h3>
           <div class="danger">${esc(r.reason)}</div>
+          ${r.maxThickness ? `<div class="note">${esc(machineLabel(machine))} 로 가능한 ${esc(mat.name)} 최대 두께는 약 <b>${r.maxThickness}mm</b>입니다.</div>` : ""}
+          ${fit ? `<div class="btn-row"><button class="btn block" id="toFit">${fit}mm 설정값 보기</button></div>` : ""}
           ${alts ? `<div class="section-title">대신 이런 소재는 어떠세요?</div><div class="filter-row">${alts}</div>` : ""}
           <div class="btn-row"><button class="btn block" id="toShop">재료 보러 가기</button></div>
         </div>`;
       $$("button[data-alt]", box).forEach((b) => b.addEventListener("click", () => selectMaterial(b.dataset.alt)));
+      if (fit) $("#toFit", box).addEventListener("click", () => { state.thickness = fit; renderDetail(); });
       $("#toShop", box).addEventListener("click", () => setView("shop"));
       return;
     }
 
     const isEngrave = r.op === "engrave";
-    const meta = isEngrave ? [
+    const isFiber = machine.type === "fiber";
+    const meta = isFiber ? [
+      ["속도(mm/min)", r.speedMmMin.toLocaleString("ko-KR")],
+      ["해치 간격", r.hatchMm + " mm"],
+      ["주파수", r.freqKhz + " kHz"],
+      ["패스", r.passes + " 회"],
+      ["100x100mm 소요", fmtSec(r.secPer100mm2)],
+      ["초점", "표면 (어닐링은 +0.5mm 디포커스)"],
+    ] : isEngrave ? [
       ["속도(mm/s)", r.speedMmS + " mm/s"],
       ["라인 간격", (r.spacing || r.hatchMm) + " mm"],
       ["해상도", (r.dpi || "-") + " DPI"],
@@ -310,7 +324,7 @@
         <div class="small muted">${esc(machineLabel(machine))} 기준 시작값</div>
         <div class="big-grid">
           <div class="big"><div class="v">${r.powerPct}<small>%</small></div><div class="k">출력</div></div>
-          <div class="big"><div class="v">${r.speedMmMin}</div><div class="k">속도 mm/min</div></div>
+          <div class="big"><div class="v">${isFiber ? r.speedMmS : r.speedMmMin}</div><div class="k">속도 ${isFiber ? "mm/s" : "mm/min"}</div></div>
           <div class="big"><div class="v">${r.passes}<small>회</small></div><div class="k">패스</div></div>
         </div>
         <div class="meta">${meta.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>
@@ -727,7 +741,8 @@
           <li>배기(환기)를 켜고, 실내로 연기가 새지 않는지 확인합니다.</li>
           <li>소화기 또는 젖은 수건을 손 닿는 곳에 둡니다.</li>
           <li>작동 중에는 자리를 비우지 않습니다. 화재는 대부분 눈을 뗀 30초 사이에 시작됩니다.</li>
-          <li>다이오드 장비는 반드시 해당 파장용 보호 안경을 쓰고, 개방형이면 차폐를 설치합니다.</li>
+          <li>파이버 마킹기는 개방형이 많습니다. 1064nm 전용 보호 안경을 반드시 쓰고 차폐를 설치하세요.</li>
+          <li>CO2 장비는 뚜껑 인터록과 냉각수(칠러) 온도·순환을 확인한 뒤 가동합니다.</li>
           <li>초점과 렌즈 상태를 확인합니다. 렌즈가 더러우면 같은 설정에서도 절단이 안 됩니다.</li>
           <li>성분을 모르는 소재는 판매처에 재질을 확인한 뒤 가공합니다.</li>
         </ul>
