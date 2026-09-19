@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>docscan 브라우저 테스트</title>
+<link rel="icon" href="../icons/icon-192.png">
+<style>
+  body { font: 14px/1.5 ui-monospace, monospace; background: #0f1115; color: #f2f4f8;
+         margin: 0; padding: 20px; }
+  h1 { font-size: 16px; }
+  li { margin: 2px 0; }
+  .ok { color: #35c26a; }
+  .fail { color: #e8564a; }
+  .note { color: #9aa3b2; }
+</style>
+</head>
+<body>
+<h1>docscan 브라우저 테스트</h1>
+<p id="summary">실행 중…</p>
+<ul id="list"></ul>
+<script type="module">
+import { runAll } from "./tests.js";
+
+window.docscanTests = runAll().then((results) => {
+  const list = document.getElementById("list");
+  for (const result of results) {
+    const item = document.createElement("li");
+    item.className = result.ok ? "ok" : "fail";
+    item.textContent = `${result.ok ? "PASS" : "FAIL"}  ${result.name}`;
+    if (result.note) {
+      const note = document.createElement("span");
+      note.className = "note";
+      note.textContent = "  — " + result.note;
+      item.appendChild(note);
+    }
+    list.appendChild(item);
+  }
+  const failed = results.filter((result) => !result.ok).length;
+  document.getElementById("summary").textContent =
+    `${results.length - failed} / ${results.length} 통과`;
+  window.docscanResults = results;
+  return results;
+}).catch((error) => {
+  document.getElementById("summary").textContent = "오류: " + error.message;
+  window.docscanResults = [{ name: "harness", ok: false, note: error.message }];
+  return window.docscanResults;
+});
+</script>
+</body>
+</html>

@@ -24,6 +24,9 @@ the result as PDF or image.  See [docscan/README.md](docscan/README.md).
     docscan camera            # capture pages with a camera
     docscan scan photo.jpg    # process photos you already have
 
+It also ships as an installable web app for phones - open it in a mobile
+browser and add it to the home screen; see [docscan/web/README.md](docscan/web/README.md).
+
 It is packaged separately (`docscan/pyproject.toml`), so it is not part of the
 PyCAM distribution.
 

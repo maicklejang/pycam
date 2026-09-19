@@ -1,0 +1,76 @@
+# Test and publish the docscan web app (the phone scanner).
+#
+# The site is served from GitHub Pages, which is what makes it installable on
+# a phone: the camera is only available over HTTPS.  Enable it once under
+# Settings -> Pages -> Source: "GitHub Actions".
+name: docscan web app
+
+on:
+  push:
+    branches: [master, main, 'claude/**']
+    paths:
+      - 'docscan/**'
+      - '.github/workflows/docscan-web.yml'
+  pull_request:
+    paths:
+      - 'docscan/**'
+      - '.github/workflows/docscan-web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docscan-web
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy opencv-python-headless flake8
+      - name: Style
+        run: python -m flake8 docscan
+      - name: Python tests
+        run: python -m unittest discover -s docscan/tests -t .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Fetch OpenCV.js
+        run: docscan/web/fetch-opencv.sh
+      - name: Render the test fixtures
+        run: python docscan/web/tests/make-fixtures.py
+      - name: Install a browser
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Browser tests
+        run: node docscan/web/tests/run.mjs
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch OpenCV.js
+        run: docscan/web/fetch-opencv.sh
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docscan/web
+      - id: deploy
+        uses: actions/deploy-pages@v4

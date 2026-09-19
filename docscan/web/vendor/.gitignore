@@ -1,0 +1,3 @@
+# opencv.js is fetched on demand (see ../fetch-opencv.sh); it is far too big
+# to keep in the repository.
+opencv.js
