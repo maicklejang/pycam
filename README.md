@@ -14,6 +14,16 @@ Graphical Interface: `pycam/run_gui.py`
 Scripted Toolpath Processing: `pycam/run_cli.py FLOW_SPECIFICATION_FILE`
 
 
+## Also in this repository
+
+`docscan` is a standalone document scanner: it detects a sheet of paper in a
+photo (or in a live camera image), straightens it, removes shadows and writes
+the result as PDF or image.  See [docscan/README.md](docscan/README.md).
+
+    python3 -m docscan camera          # capture pages with a camera
+    python3 -m docscan scan photo.jpg  # process photos you already have
+
+
 ## Resources
 
 See the [documentation](http://pycam.sourceforge.net/introduction/) for a short introduction.
