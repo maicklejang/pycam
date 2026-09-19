@@ -74,6 +74,14 @@ self.addEventListener("fetch", function (event) {
         return;
     }
 
+    // The document scanner under /docscan/ is a separate app with its own
+    // service worker.  Leaving its requests alone keeps this cache free of a
+    // second copy of its WebAssembly build, and stops the offline fallback
+    // below from answering a scanner URL with the viewer.
+    if (url.pathname.indexOf("/docscan/") !== -1) {
+        return;
+    }
+
     // Network first: a cache-first shell kept handing out the previous release
     // until the app was started twice.  The cache stays as the offline copy.
     event.respondWith(fetch(event.request).then(function (response) {
