@@ -48,10 +48,13 @@
 Pages 배포 워크플로가 들어 있습니다.
 
 1. GitHub 저장소 → **Settings → Pages → Source** 를 **GitHub Actions** 로 바꿉니다.
-2. `docscan/` 아래가 바뀌어 push되면 워크플로가 테스트를 돌리고 자동 배포합니다.
-   (Actions 탭에서 `docscan web app` → `Run workflow` 로 직접 실행할 수도 있습니다.)
+   (이걸 해야 `github-pages` 환경이 생기고 배포가 가능해집니다.)
+2. 변경 사항을 **기본 브랜치(master)** 에 반영합니다. Pages는 기본 브랜치에서만
+   배포를 받으므로, 기능 브랜치 push로는 배포되지 않습니다(테스트만 돕니다).
+   master에 들어오면 워크플로가 테스트를 돌리고 자동 배포합니다. Actions 탭에서
+   `docscan web app` → `Run workflow` → **master 선택** 으로 직접 실행해도 됩니다.
 3. 배포 주소는 보통 `https://<사용자이름>.github.io/<저장소이름>/` 입니다.
-   Actions 실행 화면의 `deploy` 단계에도 주소가 표시됩니다.
+   Actions 실행 화면의 `deploy` 잡에도 주소가 표시됩니다.
 
 직접 다른 곳에 올린다면 `docscan/web/` 폴더 전체를 그대로 정적 호스팅하면 됩니다.
 단, `vendor/opencv.js`가 없으면 앱이 CDN에서 내려받으므로, 완전히 자체 호스팅하려면

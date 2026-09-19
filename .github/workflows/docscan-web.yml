@@ -57,7 +57,12 @@ jobs:
 
   deploy:
     needs: test
-    if: github.event_name != 'pull_request'
+    # Pages only accepts deployments from the default branch: its
+    # "github-pages" environment rejects any other ref before the job even
+    # starts, so a feature branch would just paint the run red.
+    if: >-
+      github.event_name != 'pull_request'
+      && github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     permissions:
       contents: read
