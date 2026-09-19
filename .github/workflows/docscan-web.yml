@@ -21,7 +21,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: docscan-web
+  # keyed by event as well: the push run deploys, the pull_request run only
+  # tests, so they must not cancel each other on the same commit
+  group: docscan-web-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -69,6 +71,10 @@ jobs:
       - name: Fetch OpenCV.js
         run: docscan/web/fetch-opencv.sh
       - uses: actions/configure-pages@v5
+        with:
+          # create the Pages site on first run instead of needing the
+          # Settings -> Pages toggle
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docscan/web
