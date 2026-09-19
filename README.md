@@ -14,6 +14,14 @@ Graphical Interface: `pycam/run_gui.py`
 Scripted Toolpath Processing: `pycam/run_cli.py FLOW_SPECIFICATION_FILE`
 
 
+## Mobile viewer
+
+`mobile/` contains **PyCAM Viewer**, an installable web app (PWA) that opens STL,
+STEP/STP and DXF files directly on a phone - offline, with no upload.  Start it with
+`python3 mobile/serve.py` and open the printed address on your phone, or host the
+directory on any static web server.  See [mobile/README.md](mobile/README.md).
+
+
 ## Resources
 
 See the [documentation](http://pycam.sourceforge.net/introduction/) for a short introduction.

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0e1117">
+<meta name="description" content="STL, STEP and DXF viewer for phones - opens CAD files directly on your device, offline.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PyCAM Viewer">
+<title>PyCAM Viewer</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" class="logo" aria-hidden="true">
+      <path d="M4 10.5 16 4l12 6.5v11L16 28 4 21.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M4 10.5 16 17l12-6.5M16 17v11" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".75"/>
+    </svg>
+    <div class="titles">
+      <span class="file-name" id="file-name" data-i18n="appName">PyCAM Viewer</span>
+      <span class="file-meta" id="file-meta" data-i18n="tagline">STL · STEP · DXF</span>
+    </div>
+  </div>
+  <div class="top-actions">
+    <button class="icon-button" id="btn-open" data-i18n-title="open" title="파일 열기">
+      <svg viewBox="0 0 24 24"><path d="M4 6h6l2 2h8v10H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+    </button>
+    <button class="icon-button" id="btn-panel" data-i18n-title="details" title="정보">
+      <svg viewBox="0 0 24 24"><path d="M12 8h.01M11 12h1v5h1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="side-tools" id="side-tools" hidden>
+  <button class="tool" id="btn-fit" data-i18n-title="fit" title="맞춤">
+    <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+  </button>
+  <button class="tool" id="btn-measure" data-i18n-title="measure" title="치수 측정">
+    <svg viewBox="0 0 24 24"><path d="M3 14.5 14.5 3 21 9.5 9.5 21z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.5 10 9 11.5M10.5 7 12 8.5M13.5 4.5 15 6M6 13l1.5 1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+  </button>
+  <button class="tool" id="btn-section" data-i18n-title="section" title="단면도">
+    <svg viewBox="0 0 24 24"><path d="M4 8h16v12H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M2 8h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M6 11h3M11 11h3M16 11h2M6 15h4M13 15h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity=".65"/></svg>
+  </button>
+  <button class="tool" id="btn-view" data-i18n-title="views" title="시점">
+    <svg viewBox="0 0 24 24"><path d="M3 8.5 12 4l9 4.5-9 4.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m3 12.5 9 4.5 9-4.5M3 16.5 12 21l9-4.5" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".7"/></svg>
+  </button>
+  <button class="tool" id="btn-shading" data-i18n-title="shading" title="표시 방식">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" opacity=".85"/></svg>
+  </button>
+  <button class="tool" id="btn-grid" data-i18n-title="grid" title="격자">
+    <svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M9 4v16M15 4v16" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+  </button>
+  <button class="tool" id="btn-share" data-i18n-title="snapshot" title="이미지 저장">
+    <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+</div>
+
+<div class="view-menu" id="view-menu" hidden>
+  <button data-view="iso" data-i18n="viewIso">아이소</button>
+  <button data-view="top" data-i18n="viewTop">위</button>
+  <button data-view="front" data-i18n="viewFront">앞</button>
+  <button data-view="right" data-i18n="viewRight">오른쪽</button>
+  <button data-view="left" data-i18n="viewLeft">왼쪽</button>
+  <button data-view="back" data-i18n="viewBack">뒤</button>
+  <button data-view="bottom" data-i18n="viewBottom">아래</button>
+</div>
+
+<section class="welcome" id="welcome">
+  <div class="welcome-card">
+    <h1 data-i18n="welcomeTitle">3D/2D 도면을 바로 열어보세요</h1>
+    <p data-i18n="welcomeText">STL, STEP(STP), DXF 파일을 휴대폰에서 바로 확인합니다. 파일은 기기 밖으로 전송되지 않습니다.</p>
+    <button class="primary" id="btn-open-main" data-i18n="openFile">파일 선택</button>
+    <div class="chips">
+      <span>STL</span><span>STEP / STP</span><span>DXF</span>
+    </div>
+    <div class="recent" id="recent" hidden>
+      <h2 data-i18n="recent">최근 파일</h2>
+      <ul id="recent-list"></ul>
+    </div>
+    <p class="hint" data-i18n="installHint">홈 화면에 추가하면 오프라인에서도 앱처럼 사용할 수 있습니다.</p>
+  </div>
+</section>
+
+<section class="panel" id="panel" hidden>
+  <div class="panel-handle" id="panel-handle"><span></span></div>
+  <nav class="tabs">
+    <button class="tab active" data-tab="info" data-i18n="tabInfo">정보</button>
+    <button class="tab" data-tab="layers" data-i18n="tabLayers">레이어</button>
+    <button class="tab" data-tab="display" data-i18n="tabDisplay">보기</button>
+  </nav>
+  <div class="tab-body" id="tab-info">
+    <dl class="stats" id="stats"></dl>
+    <div class="warnings" id="warnings" hidden></div>
+  </div>
+  <div class="tab-body" id="tab-layers" hidden>
+    <ul class="layer-list" id="layer-list"></ul>
+  </div>
+  <div class="tab-body" id="tab-display" hidden>
+    <label class="row"><span data-i18n="shading">표시 방식</span>
+      <select id="sel-shading">
+        <option value="shaded" data-i18n="shadedSolid">솔리드</option>
+        <option value="shaded-edges" data-i18n="shadedEdges">솔리드 + 모서리</option>
+        <option value="wireframe" data-i18n="wireframe">와이어프레임</option>
+      </select>
+    </label>
+    <label class="row"><span data-i18n="projection">투영</span>
+      <select id="sel-projection">
+        <option value="perspective" data-i18n="perspective">원근</option>
+        <option value="orthographic" data-i18n="orthographic">직교</option>
+      </select>
+    </label>
+    <label class="row"><span data-i18n="grid">격자</span>
+      <input type="checkbox" id="chk-grid" checked></label>
+    <label class="row"><span data-i18n="axes">축</span>
+      <input type="checkbox" id="chk-axes" checked></label>
+    <label class="row"><span data-i18n="partColors">부품별 색상</span>
+      <input type="checkbox" id="chk-part-colors" checked></label>
+    <label class="row"><span data-i18n="bbox">경계 상자</span>
+      <input type="checkbox" id="chk-bbox"></label>
+    <label class="row"><span data-i18n="lock">회전 잠금 (2D)</span>
+      <input type="checkbox" id="chk-lock"></label>
+    <label class="row"><span data-i18n="theme">배경</span>
+      <select id="sel-theme">
+        <option value="light" data-i18n="themeLight">밝은 회색</option>
+        <option value="dark" data-i18n="themeDark">어두움</option>
+      </select>
+    </label>
+  </div>
+</section>
+
+<div class="progress" id="progress" hidden>
+  <div class="progress-card">
+    <div class="bar"><i id="progress-bar"></i></div>
+    <span id="progress-label">…</span>
+  </div>
+</div>
+
+<div class="section-bar" id="section-bar" hidden>
+  <div class="section-axes">
+    <button data-axis="0">X</button>
+    <button data-axis="1">Y</button>
+    <button data-axis="2" class="on">Z</button>
+  </div>
+  <input type="range" id="section-slider" min="0" max="1000" value="500">
+  <button class="section-flip" id="section-flip" data-i18n-title="sectionFlip" title="반대쪽">
+    <svg viewBox="0 0 24 24"><path d="M4 9h13l-3-3M20 15H7l3 3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <span class="section-value" id="section-value">–</span>
+</div>
+
+<div class="measure-bar" id="measure-bar" hidden>
+  <div class="measure-text">
+    <strong id="measure-main">–</strong>
+    <span id="measure-detail"></span>
+  </div>
+  <button class="measure-clear" id="measure-clear" data-i18n-title="clearMeasure" title="지우기">
+    <svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<input type="file" id="file-input" accept=".stl,.step,.stp,.p21,.dxf,model/stl,application/step,image/vnd.dxf" hidden>
+
+<script src="js/parsers/common.js"></script>
+<script src="js/parsers/triangulate.js"></script>
+<script src="js/parsers/stl.js"></script>
+<script src="js/parsers/dxf.js"></script>
+<script src="js/parsers/step.js"></script>
+<script src="js/parsers/index.js"></script>
+<script src="js/viewer.js"></script>
+<script src="js/i18n.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

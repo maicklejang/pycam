@@ -1,0 +1,85 @@
+name: Deploy mobile viewer
+
+# Publishes the GitHub Pages site of this repository.
+#
+# A repository has exactly one Pages site, so this workflow assembles every
+# app that belongs on it:
+#
+#   /           the STL/STEP/DXF viewer (mobile/)
+#   /docscan/   the camera document scanner (docscan/web/)
+#
+# The scanner lives on its own branch until that is merged, so it is checked
+# out from there when it is not in the working tree yet.
+#
+# Only the assembled directory is uploaded, never the repository root: the
+# artifact step resolves symlinks, and debian/pycam.mime in the repository is
+# a dangling one, which makes a whole-repository deployment fail.
+#
+# Requires "Settings -> Pages -> Source" to be set to "GitHub Actions".
+
+on:
+  push:
+    branches:
+      - master
+      - claude/stl-step-dxf-mobile-app-wvtxta
+    paths:
+      - 'mobile/**'
+      - 'docscan/web/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the document scanner (until it lands on master)
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: claude/camera-document-scan-app-69aebj
+          path: .docscan-src
+
+      - name: Assemble the site
+        run: |
+          set -eu
+          rm -rf _site
+          mkdir -p _site
+          cp -r mobile/. _site/
+          if [ -d docscan/web ]; then
+            scanner=docscan/web
+          elif [ -d .docscan-src/docscan/web ]; then
+            scanner=.docscan-src/docscan/web
+          else
+            scanner=
+          fi
+          if [ -n "$scanner" ]; then
+            sh "$scanner/fetch-opencv.sh"
+            mkdir -p _site/docscan
+            cp -r "$scanner/." _site/docscan/
+            rm -rf _site/docscan/tests
+          fi
+          find _site -type l -print -delete
+          du -sh _site
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
