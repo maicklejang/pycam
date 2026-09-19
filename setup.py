@@ -61,7 +61,9 @@ Windows: select Python 3.X in the following dialog.
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX",
     ],
-    packages=find_packages(exclude=["pycam.Test"]),
+    # "docscan" is a separate tool living in this repository - it is not
+    # part of the PyCAM distribution (see docscan/README.md)
+    packages=find_packages(exclude=["pycam.Test", "docscan", "docscan.*"]),
     entry_points={
         "gui_scripts": [
             "pycam = pycam.run_gui:main_func",

@@ -1,0 +1,19 @@
+{
+  "name": "docscan 문서 스캐너",
+  "short_name": "docscan",
+  "description": "카메라로 문서를 찍어 기울기를 펴고 PDF로 저장합니다.",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1115",
+  "theme_color": "#0f1115",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png",
+      "purpose": "maskable" }
+  ]
+}

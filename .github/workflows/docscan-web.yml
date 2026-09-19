@@ -1,0 +1,118 @@
+# Test and publish the docscan web app (the phone scanner).
+#
+# The site is served from GitHub Pages, which is what makes it installable on
+# a phone: the camera is only available over HTTPS.  Enable it once under
+# Settings -> Pages -> Source: "GitHub Actions".
+name: docscan web app
+
+on:
+  push:
+    branches: [master, main, 'claude/**']
+    paths:
+      - 'docscan/**'
+      - '.github/workflows/docscan-web.yml'
+  pull_request:
+    paths:
+      - 'docscan/**'
+      - '.github/workflows/docscan-web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # keyed by event as well: the push run deploys, the pull_request run only
+  # tests, so they must not cancel each other on the same commit
+  group: docscan-web-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy opencv-python-headless flake8
+      - name: Style
+        run: python -m flake8 docscan
+      - name: Python tests
+        run: python -m unittest discover -s docscan/tests -t .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Fetch OpenCV.js
+        run: docscan/web/fetch-opencv.sh
+      - name: Render the test fixtures
+        run: python docscan/web/tests/make-fixtures.py
+      - name: Install a browser
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Browser tests
+        run: node docscan/web/tests/run.mjs
+
+  deploy:
+    needs: test
+    # Pages only accepts deployments from the default branch: its
+    # "github-pages" environment rejects any other ref before the job even
+    # starts, so a feature branch would just paint the run red.
+    if: >-
+      github.event_name != 'pull_request'
+      && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # A repository has exactly one Pages site, so the deployment carries
+      # every app that belongs on it - publishing only this one would take the
+      # STL/STEP/DXF viewer off the air.
+      - name: Fetch the viewer (until it lands on master)
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: claude/stl-step-dxf-mobile-app-wvtxta
+          path: .viewer-src
+
+      - name: Fetch OpenCV.js
+        run: docscan/web/fetch-opencv.sh
+
+      - name: Assemble the site
+        run: |
+          set -eu
+          rm -rf _site
+          mkdir -p _site/docscan
+          cp -r docscan/web/. _site/docscan/
+          rm -rf _site/docscan/tests
+          if [ -d mobile ]; then
+            cp -r mobile/. _site/
+          elif [ -d .viewer-src/mobile ]; then
+            cp -r .viewer-src/mobile/. _site/
+          else
+            printf '%s\n' \
+              '<!doctype html><meta charset="utf-8">' \
+              '<meta http-equiv="refresh" content="0; url=./docscan/">' \
+              '<title>docscan</title><a href="./docscan/">docscan 문서 스캐너</a>' \
+              > _site/index.html
+          fi
+          # the artifact step resolves symlinks, and debian/pycam.mime in the
+          # repository is a dangling one - make sure none reach the upload
+          find _site -type l -print -delete
+          du -sh _site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
