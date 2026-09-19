@@ -28,35 +28,65 @@
 
 ## 설치
 
+저장소 최상위 폴더에서 설치하면 `docscan` 명령이 생깁니다.
+
 ```bash
-pip install -r docscan/requirements.txt
+pip install ./docscan
+docscan --version
 ```
 
-디스플레이가 없는 서버라면 `opencv-python` 대신 `opencv-python-headless`를 써도
-됩니다. 이 경우 `docscan scan`과 `docscan camera --no-preview`만 사용할 수 있습니다.
+명령줄 도구만 쓸 거라면 `pipx`로 설치하는 편이 깔끔합니다(시스템 파이썬을
+건드리지 않고 독립 환경에 설치되며, 제거는 `pipx uninstall docscan`).
+
+```bash
+pipx install ./docscan
+```
+
+개발 중이라 코드 수정이 바로 반영되길 원하면:
+
+```bash
+pip install -e ./docscan
+```
+
+**디스플레이가 없는 서버·컨테이너**라면 창을 띄우지 않는 OpenCV를 직접 설치한
+뒤 의존성 없이 추가하세요. 이 경우 `docscan scan`과
+`docscan camera --no-preview`를 쓸 수 있습니다.
+
+```bash
+pip install numpy opencv-python-headless
+pip install ./docscan --no-deps
+```
+
+설치하지 않고 저장소에서 바로 실행할 수도 있습니다.
+
+```bash
+pip install -r docscan/requirements.txt
+python3 -m docscan --help
+```
 
 ## 사용법
 
-저장소 최상위 폴더에서 실행합니다.
+설치했다면 `docscan ...`, 설치하지 않았다면 저장소 최상위에서
+`python3 -m docscan ...` 로 실행합니다. 아래 예시는 설치한 경우를 기준으로 합니다.
 
 ```bash
-python3 -m docscan --help
+docscan --help
 ```
 
 ### 1. 카메라로 스캔하기
 
 ```bash
 # 미리보기 창을 띄우고 여러 장 촬영 → scans/scan-<날짜>.pdf 로 저장
-python3 -m docscan camera
+docscan camera
 
 # 흑백 모드로, 문서를 가만히 들면 자동 촬영, 결과를 지정한 PDF로 저장
-python3 -m docscan camera --mode bw --auto -o 회의록.pdf
+docscan camera --mode bw --auto -o 회의록.pdf
 
 # 사진 한 장만 빠르게 찍기
-python3 -m docscan shot -o 영수증.pdf
+docscan shot -o 영수증.pdf
 
 # 연결된 카메라 확인
-python3 -m docscan devices
+docscan devices
 ```
 
 미리보기 창에서 쓰는 키 (OpenCV 창은 한글을 그리지 못해 안내는 영문입니다):
@@ -77,23 +107,23 @@ python3 -m docscan devices
 휴대폰을 웹캠처럼 쓰고 싶다면 IP 웹캠 앱의 주소를 그대로 넘기면 됩니다.
 
 ```bash
-python3 -m docscan camera --device http://192.168.0.10:8080/video
+docscan camera --device http://192.168.0.10:8080/video
 ```
 
 ### 2. 이미 찍어둔 사진 스캔하기
 
 ```bash
 # 폴더 안의 모든 사진을 한 개의 PDF로
-python3 -m docscan scan ./사진 -o 스캔결과.pdf
+docscan scan ./사진 -o 스캔결과.pdf
 
 # 사진 한 장을 흑백 PNG로 (원본 옆에 <이름>_scan.png 생성)
-python3 -m docscan scan 문서.jpg --mode bw --format png
+docscan scan 문서.jpg --mode bw --format png
 
 # 폴더를 재귀적으로 훑어 이미지 + PDF를 함께 저장
-python3 -m docscan scan ./사진 -r -o ./결과 --pdf 전체.pdf
+docscan scan ./사진 -r -o ./결과 --pdf 전체.pdf
 
 # 검출 결과를 눈으로 확인하고 싶을 때(외곽선을 그린 사진을 함께 저장)
-python3 -m docscan scan 문서.jpg -o out.pdf --debug-dir ./debug -v
+docscan scan 문서.jpg -o out.pdf --debug-dir ./debug -v
 ```
 
 ### 색 모드
@@ -107,7 +137,7 @@ python3 -m docscan scan 문서.jpg -o out.pdf --debug-dir ./debug -v
 | `none` | 보정 없이 기울기만 보정 | 사진·도면 원본 유지 |
 
 ```bash
-python3 -m docscan modes   # 설명 보기
+docscan modes   # 설명 보기
 ```
 
 > 글자가 아주 작게 찍힌 사진(결과에서 글자 높이가 8픽셀 미만)이라면 `bw`보다
@@ -175,6 +205,7 @@ write_pdf("문서.pdf", [result.image], dpi=300, title="문서")
 | `camera.py` | 실시간 카메라 세션 |
 | `scanner.py` | 전체 파이프라인 |
 | `cli.py` | 명령줄 인터페이스 |
+| `pyproject.toml` | 독립 패키지 정의 (`pip install ./docscan` → `docscan` 명령) |
 | `io_utils.py` | 한글 경로를 지원하는 파일 입출력 |
 | `tests/` | 합성 문서 사진으로 하는 자동 테스트 |
 

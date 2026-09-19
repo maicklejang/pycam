@@ -20,8 +20,12 @@ Scripted Toolpath Processing: `pycam/run_cli.py FLOW_SPECIFICATION_FILE`
 photo (or in a live camera image), straightens it, removes shadows and writes
 the result as PDF or image.  See [docscan/README.md](docscan/README.md).
 
-    python3 -m docscan camera          # capture pages with a camera
-    python3 -m docscan scan photo.jpg  # process photos you already have
+    pip install ./docscan     # installs the "docscan" command
+    docscan camera            # capture pages with a camera
+    docscan scan photo.jpg    # process photos you already have
+
+It is packaged separately (`docscan/pyproject.toml`), so it is not part of the
+PyCAM distribution.
 
 
 ## Resources
