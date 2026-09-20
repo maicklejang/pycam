@@ -286,6 +286,11 @@ async function main() {
     await step("a thumbnail opens the page full screen", async () => {
       await page.click(".thumb img");
       await page.waitForSelector("#viewer[open]");
+      // the blob still has to be decoded and laid out before it has a size
+      await page.waitForFunction(() => {
+        const image = document.getElementById("viewer-image");
+        return image.complete && image.getBoundingClientRect().width > 0;
+      }, null, { timeout: 30000 });
       const shown = await page.$eval("#viewer-position", (node) => node.textContent);
       if (shown !== "1 / 5") throw new Error("position reads " + shown);
       const sizes = await page.evaluate(() => {
