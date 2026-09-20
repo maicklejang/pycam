@@ -263,6 +263,61 @@ async function main() {
       if (labels.length !== 5) throw new Error("thumbnails: " + labels.length);
       return labels.join(", ");
     });
+    await step("a thumbnail opens the page full screen", async () => {
+      await page.click(".thumb img");
+      await page.waitForSelector("#viewer[open]");
+      const shown = await page.$eval("#viewer-position", (node) => node.textContent);
+      if (shown !== "1 / 5") throw new Error("position reads " + shown);
+      const sizes = await page.evaluate(() => {
+        const image = document.getElementById("viewer-image");
+        const thumb = document.querySelector(".thumb img");
+        return { big: image.getBoundingClientRect().width,
+                 small: thumb.getBoundingClientRect().width };
+      });
+      if (!(sizes.big > sizes.small * 2)) {
+        throw new Error(`the page is only ${Math.round(sizes.big)} px wide`);
+      }
+      return `${shown}, ${Math.round(sizes.big)} px wide`;
+    });
+    await step("the viewer walks through the pages and zooms", async () => {
+      await page.click("#viewer-next");
+      await page.waitForFunction(
+        () => document.getElementById("viewer-position").textContent === "2 / 5");
+      const box = await page.$eval("#viewer-stage", (node) => {
+        const rect = node.getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      });
+      await page.mouse.click(box.x, box.y);
+      await page.mouse.click(box.x, box.y, { delay: 20 });
+      await page.waitForTimeout(150);
+      const zoom = await page.$eval("#viewer-image", (node) => node.style.transform);
+      if (!/scale\((?!1\))/.test(zoom)) throw new Error("no zoom: " + zoom);
+      await page.keyboard.press("0");
+      await page.click("#viewer-close");
+      await page.waitForSelector("#viewer[open]", { state: "detached" });
+      return "page 2, then " + zoom.replace(/\s+/g, " ");
+    });
+    await step("pages can be put in another order", async () => {
+      // the fourth page is the black and white one, so walking it to the
+      // front is visible in the badges
+      const read = () => page.$$eval(".thumb .thumb__index",
+                                     (nodes) => nodes.map((node) => node.textContent));
+      const before = await read();
+      if (!before[3].includes("흑백")) throw new Error("expected 4 to be 흑백: " + before);
+      for (let slot = 4; slot > 1; slot -= 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await page.click(`.thumb:nth-child(${slot}) .thumb__order button:first-child`);
+        // eslint-disable-next-line no-await-in-loop
+        await page.waitForTimeout(200);
+      }
+      const after = await read();
+      if (after.length !== before.length) throw new Error("a page went missing");
+      if (!after[0].includes("흑백")) throw new Error("order now " + after.join());
+      const disabled = await page.$eval(".thumb .thumb__order button:first-child",
+                                        (node) => node.disabled);
+      if (!disabled) throw new Error("the first page can still move forwards");
+      return before.join(", ") + "  ->  " + after.join(", ");
+    });
     await step("a page can be rotated", async () => {
       const before = await page.$eval(".thumb img", (node) => node.naturalWidth);
       await page.click(".thumb .thumb__tools button");
@@ -284,14 +339,25 @@ async function main() {
       if (!/\/Count 5\b/.test(text)) throw new Error("wrong page count");
       return `${download.suggestedFilename()}, ${bytes.length} bytes`;
     });
-    await step("pages come back after a reload", async () => {
-      await page.click("#sheet-close");
-      await page.reload();
-      await page.waitForFunction(
-        () => document.getElementById("page-count").textContent === "5",
-        null, { timeout: 60000 });
-      return "restored from IndexedDB";
-    });
+    await step("pages come back after a reload, in the order they were put in",
+               async () => {
+                 const before = await page.$$eval(".thumb .thumb__index",
+                                                  (nodes) => nodes.map((n) => n.textContent));
+                 await page.click("#sheet-close");
+                 await page.reload();
+                 await page.waitForFunction(
+                   () => document.getElementById("page-count").textContent === "5",
+                   null, { timeout: 60000 });
+                 await page.click("#gallery");
+                 await page.waitForSelector(".thumb img");
+                 const after = await page.$$eval(".thumb .thumb__index",
+                                                 (nodes) => nodes.map((n) => n.textContent));
+                 if (after.join() !== before.join()) {
+                   throw new Error(`order changed: ${before.join()} -> ${after.join()}`);
+                 }
+                 await page.click("#sheet-close");
+                 return "restored from IndexedDB: " + after.join(", ");
+               });
     await step("the service worker caches the app for offline use", async () => {
       const state = await page.evaluate(async () => {
         const registration = await navigator.serviceWorker.getRegistration();

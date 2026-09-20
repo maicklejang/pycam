@@ -7,13 +7,14 @@
 
 import { loadOpenCV } from "./cv.js";
 import { CurvedQuad, flatten, refineEdges, straightenTextLines } from "./curve.js";
+import { openViewer, refreshViewer, setupViewer } from "./viewer.js";
 import { findDocument, touchesBorder } from "./detect.js";
 import { openEditor } from "./editor.js";
 import { MODE_DESCRIPTIONS, MODE_LABELS, MODES, enhance } from "./enhance.js";
 import { matFromSource, matToCanvas } from "./mat.js";
 import { fourPointTransform } from "./transform.js";
 import { buildPdf } from "./pdf.js";
-import { loadPages, savePage, removePage, clearPages } from "./store.js";
+import { clearPages, loadPages, removePage, savePage, savePages } from "./store.js";
 
 const DETECT_SIZE = 400;          // analysis width of the live preview
 const DETECT_INTERVAL = 90;       // ms between two live detections
@@ -54,6 +55,19 @@ const ui = {
   sheetImages: document.getElementById("sheet-images"),
   sheetClear: document.getElementById("sheet-clear"),
   thumbs: document.getElementById("thumbs"),
+  viewer: {
+    root: document.getElementById("viewer"),
+    image: document.getElementById("viewer-image"),
+    stage: document.getElementById("viewer-stage"),
+    position: document.getElementById("viewer-position"),
+    hint: document.getElementById("viewer-hint"),
+    previous: document.getElementById("viewer-previous"),
+    next: document.getElementById("viewer-next"),
+    rotate: document.getElementById("viewer-rotate"),
+    save: document.getElementById("viewer-save"),
+    remove: document.getElementById("viewer-remove"),
+    close: document.getElementById("viewer-close"),
+  },
 };
 
 const state = {
@@ -161,6 +175,8 @@ async function addPage(canvas, mode) {
     width: canvas.width,
     height: canvas.height,
     mode,
+    created: Date.now(),
+    order: state.pages.length,
   };
   state.pages.push(page);
   await savePage(page).catch(() => { /* private mode: keep the page in memory */ });
@@ -206,18 +222,80 @@ function refreshPages() {
   ui.sheetEmpty.hidden = count > 0;
 }
 
-function renderThumbs() {
+/** Save one page on its own, as the file it already is. */
+async function savePageFile(page) {
+  const extension = page.blob.type === "image/png" ? "png" : "jpg";
+  await deliver(page.blob, timestampName(extension));
+}
+
+/**
+ * Write the order back onto the pages and store it.
+ *
+ * The number has to reach the page objects the app holds, not only the
+ * database: anything that saves a single page later (a rotation, say) carries
+ * its own copy of it, and a stale one would put the page back where it was.
+ */
+async function renumberPages() {
+  state.pages.forEach((page, index) => { page.order = index; });
+  await savePages(state.pages).catch(() => { /* private mode: order stays for now */ });
+}
+
+/** Forget a page, everywhere. */
+async function dropPage(page) {
+  state.pages = state.pages.filter((entry) => entry.id !== page.id);
+  await removePage(page.id).catch(() => {});
+  await renumberPages();
+  refreshPages();
+  renderThumbs();
+}
+
+/**
+ * Move a page to another place in the stack.
+ *
+ * Pages come out in the order they were shot, which is rarely the order they
+ * belong in - a page shot again because the first try was blurred lands at
+ * the end.  The order is stored with the pages, so it survives a reload and
+ * is what the PDF is built from.
+ */
+async function movePage(from, to) {
+  if (to < 0 || to >= state.pages.length || from === to) return;
+  const [page] = state.pages.splice(from, 1);
+  state.pages.splice(to, 0, page);
+  await renumberPages();
+  renderThumbs(page.id);
+  refreshViewer(state.pages);
+}
+
+function renderThumbs(highlight = null) {
   ui.thumbs.innerHTML = "";
   state.pages.forEach((page, index) => {
     const item = document.createElement("div");
-    item.className = "thumb";
+    item.className = "thumb" + (page.id === highlight ? " thumb--moving" : "");
     const image = document.createElement("img");
     image.alt = `${index + 1}번째 페이지`;
     image.src = URL.createObjectURL(page.thumbBlob || page.blob);
     image.addEventListener("load", () => URL.revokeObjectURL(image.src), { once: true });
+    image.addEventListener("click", () => openViewer(state.pages, index));
     const badge = document.createElement("span");
     badge.className = "thumb__index";
     badge.textContent = `${index + 1} · ${MODE_LABELS[page.mode] || page.mode}`;
+
+    const order = document.createElement("div");
+    order.className = "thumb__order";
+    const earlier = document.createElement("button");
+    earlier.textContent = "◀";
+    earlier.title = "앞으로";
+    earlier.setAttribute("aria-label", `${index + 1}번째 페이지를 앞으로`);
+    earlier.disabled = index === 0;
+    earlier.addEventListener("click", () => movePage(index, index - 1));
+    const later = document.createElement("button");
+    later.textContent = "▶";
+    later.title = "뒤로";
+    later.setAttribute("aria-label", `${index + 1}번째 페이지를 뒤로`);
+    later.disabled = index === state.pages.length - 1;
+    later.addEventListener("click", () => movePage(index, index + 1));
+    order.append(earlier, later);
+
     const tools = document.createElement("div");
     tools.className = "thumb__tools";
     const turn = document.createElement("button");
@@ -226,23 +304,16 @@ function renderThumbs() {
       turn.disabled = true;
       await rotatePage(page);
       renderThumbs();
+      refreshViewer(state.pages);
     });
     const single = document.createElement("button");
     single.textContent = "저장";
-    single.addEventListener("click", async () => {
-      const extension = page.blob.type === "image/png" ? "png" : "jpg";
-      await deliver(page.blob, timestampName(extension));
-    });
+    single.addEventListener("click", () => savePageFile(page));
     const drop = document.createElement("button");
     drop.textContent = "삭제";
-    drop.addEventListener("click", async () => {
-      state.pages = state.pages.filter((entry) => entry.id !== page.id);
-      await removePage(page.id).catch(() => {});
-      refreshPages();
-      renderThumbs();
-    });
+    drop.addEventListener("click", () => dropPage(page));
     tools.append(turn, single, drop);
-    item.append(image, badge, tools);
+    item.append(image, badge, order, tools);
     ui.thumbs.appendChild(item);
   });
 }
@@ -310,6 +381,11 @@ async function scanSource(source, { outline = null, flattenPage = state.flatten 
         used = flattenPage ? refineEdges(image, found.quad)
           : CurvedQuad.fromQuad(found.quad);
       }
+    } else if (flattenPage && used.isStraight) {
+      // a region picked by hand is placed by eye; with flattening asked for,
+      // the border around it is measured and the corners land on the paper.
+      // An edge the user bent on purpose is left exactly as drawn.
+      used = refineEdges(image, used.corners);
     }
 
     let page;
@@ -657,6 +733,12 @@ function wireEvents() {
     ui.sheet.showModal();
   });
   ui.sheetClose.addEventListener("click", () => ui.sheet.close());
+
+  setupViewer(ui.viewer, {
+    rotate: (page) => rotatePage(page).then(() => renderThumbs()),
+    save: savePageFile,
+    remove: (page) => dropPage(page),
+  });
 
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();

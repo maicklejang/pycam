@@ -286,7 +286,7 @@ body {
 
 .thumbs {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
   gap: 10px;
   padding: 14px 16px;
   overflow-y: auto;
@@ -301,7 +301,7 @@ body {
   border: 1px solid var(--line);
 }
 
-.thumb img { width: 100%; height: 132px; object-fit: contain; display: block; }
+.thumb img { width: 100%; height: 124px; object-fit: contain; display: block; cursor: zoom-in; }
 
 .thumb__index {
   position: absolute;
@@ -388,3 +388,114 @@ body {
 }
 
 .editor__actions .chip { min-width: 96px; padding: 11px 18px; }
+
+/* -- looking at one page full screen ------------------------------------- */
+
+.viewer {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  border: 0;
+  z-index: 25;
+  flex-direction: column;
+  background: #05070a;
+  color: var(--text);
+  padding: calc(8px + var(--safe-top)) 10px calc(10px + var(--safe-bottom));
+  gap: 10px;
+}
+
+/* a dialog is display:none until it is opened, so the flex box goes here */
+.viewer[open] { display: flex; }
+.viewer::backdrop { background: #05070a; }
+
+.viewer__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.viewer__position { font-size: 14px; font-variant-numeric: tabular-nums; }
+.viewer__hint { font-size: 12px; color: var(--muted); }
+
+.viewer__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  touch-action: none;          /* pinching must zoom the page, not the app */
+}
+
+.viewer__image {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 6px;
+  transform-origin: center center;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.viewer__stage--zoomed .viewer__step { opacity: 0.25; }
+
+.viewer__step {
+  position: absolute;
+  /* the page itself is transformed, which puts it in the same painting layer
+     as a positioned element - without this it would swallow these taps */
+  z-index: 2;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 64px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--text);
+  font-size: 26px;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.viewer__step--previous { left: 4px; }
+.viewer__step--next { right: 4px; }
+.viewer__step:disabled { opacity: 0; pointer-events: none; }
+
+.viewer__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.viewer__actions .chip { min-width: 84px; padding: 11px 18px; }
+
+/* -- putting the pages in order ------------------------------------------ */
+
+.thumb--moving { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* its own row: a 104 px wide card has no space beside the page number */
+.thumb__order {
+  display: flex;
+  border-top: 1px solid var(--line);
+}
+
+.thumb__order button {
+  flex: 1;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.1;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.thumb__order button:hover:not(:disabled) { color: var(--text); }
+.thumb__order button:disabled { opacity: 0.25; cursor: default; }

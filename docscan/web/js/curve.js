@@ -9,7 +9,7 @@
 
 import { withMats } from "./cv.js";
 import { toGray } from "./mat.js";
-import { orderCorners, outputSize } from "./transform.js";
+import { orderCorners, outputSize, projectiveFocal } from "./transform.js";
 
 /** A bulge below this fraction of an edge counts as straight. */
 export const STRAIGHT_LIMIT = 0.012;
@@ -30,11 +30,41 @@ export function midpointFromControl(start, control, end) {
   return bezierPoint(start, control, end, 0.5);
 }
 
-/** Four corners (TL, TR, BR, BL) plus one Bezier control point per edge. */
+/** How many points of each edge a measured border profile keeps. */
+export const PROFILE_SAMPLES = 129;
+
+/** Start, direction, length and inward normal of one edge of a quad. */
+export function edgeFrame(corners, index) {
+  const start = corners[index];
+  const end = corners[(index + 1) % 4];
+  const direction = [end[0] - start[0], end[1] - start[1]];
+  const length = Math.hypot(direction[0], direction[1]);
+  if (length < 1e-6) return { start, direction, length: 0, normal: [0, 0] };
+  let normal = [-direction[1] / length, direction[0] / length];
+  const chord = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
+  const centre = [(corners[0][0] + corners[1][0] + corners[2][0] + corners[3][0]) / 4,
+                  (corners[0][1] + corners[1][1] + corners[2][1] + corners[3][1]) / 4];
+  if ((centre[0] - chord[0]) * normal[0] + (centre[1] - chord[1]) * normal[1] < 0) {
+    normal = [-normal[0], -normal[1]];
+  }
+  return { start, direction, length, normal };
+}
+
+/**
+ * Four corners (TL, TR, BR, BL) plus one Bezier control point per edge.
+ *
+ * A single quadratic per edge is what a person can drag, and it is enough for
+ * the outline the app draws.  It is not enough to flatten a strongly curled
+ * sheet, so when the border has been measured in the photo the samples are
+ * kept alongside, in `profiles`, and the flattening follows those.  They are
+ * offsets from the straight chord along its inward normal, so they only mean
+ * anything for these corners: any edit that moves a corner drops them.
+ */
 export class CurvedQuad {
-  constructor(corners, controls) {
+  constructor(corners, controls, profiles = null) {
     this.corners = corners.map((point) => [point[0], point[1]]);
     this.controls = controls.map((point) => [point[0], point[1]]);
+    this.profiles = profiles ? profiles.map((row) => Float64Array.from(row)) : null;
   }
 
   static fromQuad(quad) {
@@ -62,6 +92,31 @@ export class CurvedQuad {
   edge(index, t) {
     return bezierPoint(this.corners[index], this.controls[index],
                        this.corners[(index + 1) % 4], t);
+  }
+
+  /**
+   * The page border along an edge - measured if it was measured.
+   *
+   * `edge` is the Bezier the UI draws; this is what the flattening follows,
+   * which is the same curve unless a profile was measured.
+   */
+  border(index, t) {
+    if (!this.profiles) return this.edge(index, t);
+    const { start, direction, length, normal } = edgeFrame(this.corners, index);
+    if (length < 1e-6) return this.edge(index, t);
+    const profile = this.profiles[index];
+    const last = profile.length - 1;
+    const place = Math.min(last, Math.max(0, t * last));
+    const low = Math.floor(place);
+    const high = Math.min(last, low + 1);
+    const offset = profile[low] + (place - low) * (profile[high] - profile[low]);
+    return [start[0] + direction[0] * t + normal[0] * offset,
+            start[1] + direction[1] * t + normal[1] * offset];
+  }
+
+  /** The same outline as the plain Bezier one - what an edit leaves. */
+  withoutProfiles() {
+    return new CurvedQuad(this.corners, this.controls);
   }
 
   edgeLength(index, samples = 64) {
@@ -214,7 +269,7 @@ function boundaryCurves(curved, width, height, samples = 256) {
       const ys = new Float64Array(samples);
       for (let step = 0; step < samples; step += 1) {
         const t = step / (samples - 1);
-        const point = curved.edge(index, reverse ? 1 - t : t);
+        const point = curved.border(index, reverse ? 1 - t : t);
         const mapped = applyMatrix(matrix, point[0], point[1]);
         xs[step] = mapped[0];
         ys[step] = mapped[1];
@@ -242,12 +297,115 @@ function boundaryCurves(curved, width, height, samples = 256) {
   });
 }
 
+/**
+ * Positions along one axis that sample the real sheet evenly.
+ *
+ * Where the paper turns away from the camera it is foreshortened, and
+ * sampling the rectified rectangle evenly squeezes the text there - the
+ * difference between a photo that has been straightened and a page that has
+ * been scanned.  The two ends of each ruling (a line across the sheet) say
+ * how much: the ruling's image length is its distance, its position is its
+ * direction, and together they give the sheet's cross-section up to one scale
+ * factor.  Walking that at equal arc length unrolls the sheet.
+ */
+function arcWalk(first, second, focal, centre) {
+  const count = first.length;
+  const walked = new Float64Array(count);
+  let previous = null;
+  let total = 0;
+  for (let index = 0; index < count; index += 1) {
+    const a = first[index];
+    const b = second[index];
+    const span = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (!(span > 1e-6)) return null;
+    const middle = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const point = [(middle[0] - centre[0]) / focal / span,
+                   (middle[1] - centre[1]) / focal / span, 1 / span];
+    if (previous) {
+      total += Math.hypot(point[0] - previous[0], point[1] - previous[1],
+                          point[2] - previous[2]);
+    }
+    walked[index] = total;
+    previous = point;
+  }
+  if (!(total > 0)) return null;
+  for (let index = 0; index < count; index += 1) walked[index] /= total;
+  return walked;
+}
+
+/**
+ * Sampling positions that undo the curl, and nothing else.
+ *
+ * A ruling is also foreshortened by its own slant, which the perspective
+ * transform has already dealt with, so the walk is compared against the same
+ * walk over the straight outline instead of being used on its own.  On a flat
+ * page the two are identical and the spacing stays even, to the pixel.
+ */
+function arcPositions(curvedEnds, straightEnds, focal, centre) {
+  const walked = arcWalk(curvedEnds[0], curvedEnds[1], focal, centre);
+  const reference = arcWalk(straightEnds[0], straightEnds[1], focal, centre);
+  if (!walked || !reference) return null;
+  const count = walked.length;
+  const index = new Float64Array(count);
+  for (let step = 0; step < count; step += 1) index[step] = step;
+  // column j should cover as much paper as the flat model says it does
+  return interpolate(reference, Array.from(walked), Array.from(index));
+}
+
+/**
+ * Focal length in pixels to unroll a sheet photographed like this.
+ *
+ * The perspective of the outline gives it when there is any; a shot taken
+ * straight on carries none, and then the usual field of view of a phone
+ * camera is a better guess than pretending the lens is flat.
+ */
+export function cameraFocal(curved, width, height) {
+  const longest = Math.max(width, height);
+  const focal = projectiveFocal(curved.corners, width, height);
+  if (focal === null || !(focal >= 0.3 * longest && focal <= 4 * longest)) {
+    return 0.8 * longest;
+  }
+  return focal;
+}
+
 /** Map a curved page outline onto a straight rectangle; returns a new Mat. */
 export function flatten(image, curved, { size = null, aspect = "auto", maxSide = 0 } = {}) {
   const cv = window.cv;
   const [width, height] = size
     || flattenSize(curved, image.cols, image.rows, aspect, maxSide);
-  const { inverse, topY, bottomY, leftX, rightX } = boundaryCurves(curved, width, height);
+  const curves = boundaryCurves(curved, width, height);
+  const { inverse } = curves;
+  let { topY, bottomY, leftX, rightX } = curves;
+
+  const focal = cameraFocal(curved, image.cols, image.rows);
+  const centre = [image.cols / 2, image.rows / 2];
+  const photoRow = (xs, ys) => xs.map((x, index) => applyMatrix(inverse, x, ys[index]));
+  const columnIndex = Array.from({ length: width }, (unused, index) => index);
+  const rowIndex = Array.from({ length: height }, (unused, index) => index);
+  let columns = Float64Array.from(columnIndex);
+  let rows = Float64Array.from(rowIndex);
+
+  const across = arcPositions(
+    [photoRow(columnIndex, topY), photoRow(columnIndex, bottomY)],
+    [photoRow(columnIndex, columnIndex.map(() => 0)),
+     photoRow(columnIndex, columnIndex.map(() => height - 1))],
+    focal, centre);
+  const down = arcPositions(
+    [photoRow(rowIndex.map((index) => leftX[index]), rowIndex),
+     photoRow(rowIndex.map((index) => rightX[index]), rowIndex)],
+    [photoRow(rowIndex.map(() => 0), rowIndex),
+     photoRow(rowIndex.map(() => width - 1), rowIndex)],
+    focal, centre);
+  if (across) {
+    columns = across;
+    topY = interpolate(across, columnIndex, Array.from(topY));
+    bottomY = interpolate(across, columnIndex, Array.from(bottomY));
+  }
+  if (down) {
+    rows = down;
+    leftX = interpolate(down, rowIndex, Array.from(leftX));
+    rightX = interpolate(down, rowIndex, Array.from(rightX));
+  }
 
   const mapX = new Float32Array(width * height);
   const mapY = new Float32Array(width * height);
@@ -259,11 +417,12 @@ export function flatten(image, curved, { size = null, aspect = "auto", maxSide =
     for (let x = 0; x < width; x += 1) {
       const u = width === 1 ? 0 : x / right;
       // The Coons patch of four boundary *graphs* (y(x) on top and bottom,
-      // x(y) on the sides) reduces to this: the bilinear corner surface
-      // cancels exactly against the ruled parts it is subtracted from.  This
-      // is the same surface curve.py builds with the full expression.
-      const sx = (1 - u) * leftX[y] + u * rightX[y];
-      const sy = (1 - v) * topY[x] + v * bottomY[x];
+      // x(y) on the sides) reduces to this, with the sampling positions in
+      // place of the plain column and row: the bilinear corner surface
+      // cancels against the ruled parts it is subtracted from, except for the
+      // one term each axis keeps.  Same surface as curve.py builds.
+      const sx = columns[x] + (1 - u) * leftX[y] + u * rightX[y] - u * right;
+      const sy = rows[y] + (1 - v) * topY[x] + v * bottomY[x] - v * bottomRow;
       const photo = applyMatrix(inverse, sx, sy);
       mapX[rowOffset + x] = photo[0];
       mapY[rowOffset + x] = photo[1];
@@ -353,9 +512,10 @@ function levels(gray, corners, band) {
  * of text is a stronger edge than the rim of the sheet.
  */
 export function refineEdges(image, quad, {
-  searchRatio = 0.03, samples = 25, offsets = 61, maxCurvature = 0.25, hold = 4,
+  searchRatio = 0.03, samples = 41, offsets = 61, maxCurvature = 0.25, hold = 4,
+  rounds = 2,
 } = {}) {
-  const curved = CurvedQuad.fromQuad(quad);
+  const straight = CurvedQuad.fromQuad(quad);
   const cv = window.cv;
   return withMats((keep) => {
     const gray = keep(toGray(image));
@@ -363,9 +523,9 @@ export function refineEdges(image, quad, {
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
     const diagonal = Math.hypot(image.rows, image.cols);
     const band = Math.max(3, searchRatio * diagonal);
-    const { page, background } = levels(blurred, curved.corners, band);
+    const { page, background } = levels(blurred, straight.corners, band);
     if (page === null || background === null || Math.abs(page - background) < 12) {
-      return curved;
+      return straight;
     }
 
     const data = blurred.data;
@@ -378,25 +538,24 @@ export function refineEdges(image, quad, {
       return data[row * width + column];
     };
 
-    const centre = curved.centre;
-    const controls = curved.controls.map((point) => [point[0], point[1]]);
-
-    for (let index = 0; index < 4; index += 1) {
-      const start = curved.corners[index];
-      const end = curved.corners[(index + 1) % 4];
-      const direction = [end[0] - start[0], end[1] - start[1]];
-      const length = Math.hypot(direction[0], direction[1]);
-      if (length < 1e-6) continue;
-      let normal = [-direction[1] / length, direction[0] / length];
-      const chord = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
-      if ((centre[0] - chord[0]) * normal[0] + (centre[1] - chord[1]) * normal[1] < 0) {
-        normal = [-normal[0], -normal[1]];
-      }
-
+    /**
+     * Offsets of the real border from one chord, as a quadratic in t.
+     *
+     * The edge is sampled at a number of positions and, at each of them, the
+     * brightness is read along the edge normal from outside the page inwards.
+     * The border is where the profile changes from background to paper and
+     * stays there - not simply where the gradient is strongest, because the
+     * first line of text is a stronger edge than the rim of the sheet, and a
+     * textured surface (wood, cloth) is full of strong edges of its own.
+     */
+    const measure = (corners, index) => {
+      const { start, direction, length, normal } = edgeFrame(corners, index);
+      if (length < 1e-6) return null;
       const ts = [];
       const shifts = [];
       for (let sample = 0; sample < samples; sample += 1) {
-        const t = 0.12 + (0.76 * sample) / (samples - 1);
+        // skip the corners: the border bends there and the fit would chase it
+        const t = 0.1 + (0.8 * sample) / (samples - 1);
         const baseX = start[0] + direction[0] * t;
         const baseY = start[1] + direction[1] * t;
         let run = 0;
@@ -413,23 +572,104 @@ export function refineEdges(image, quad, {
         }
         if (found !== null) { ts.push(t); shifts.push(found); }
       }
-
-      if (ts.length < Math.max(4, Math.floor(samples / 2))) continue;
+      if (ts.length < Math.max(4, Math.floor(samples / 2))) return null;
       const fit = polyfit2(ts, shifts);
-      if (!fit) continue;
+      if (!fit) return null;
       let spread = 0;
       for (let sample = 0; sample < ts.length; sample += 1) {
         const residual = shifts[sample] - polyval2(fit, ts[sample]);
         spread += residual * residual;
       }
-      if (Math.sqrt(spread / ts.length) > 0.3 * band) continue;
-      const bulge = polyval2(fit, 0.5) - 0.5 * (polyval2(fit, 0) + polyval2(fit, 1));
-      if (Math.abs(bulge) > maxCurvature * length) continue;
-      if (Math.abs(bulge) < STRAIGHT_LIMIT * length) continue;
-      const middle = [chord[0] + normal[0] * bulge, chord[1] + normal[1] * bulge];
-      controls[index] = controlFromMidpoint(start, end, middle);
+      if (Math.sqrt(spread / ts.length) > 0.3 * band) return null;
+      return fit;
+    };
+
+    const profilePoint = (corners, index, fit, t) => {
+      const { start, direction, normal } = edgeFrame(corners, index);
+      const offset = polyval2(fit, t);
+      return [start[0] + direction[0] * t + normal[0] * offset,
+              start[1] + direction[1] * t + normal[1] * offset];
+    };
+
+    /**
+     * Where the end of one fitted border crosses the start of the next.
+     *
+     * A detector can only fit a straight quad, and the extreme points of a
+     * curled sheet's silhouette are not its corners - at a strong curl they
+     * miss by tens of pixels, and every later step is anchored to them.  The
+     * borders are measured away from the corners, where they behave, so
+     * extending them until they cross puts the corner back where the paper
+     * actually ends.
+     */
+    const meetingPoint = (corners, index, fits, reach = 0.35, count = 257) => {
+      const following = (index + 1) % 4;
+      const first = [];
+      const second = [];
+      for (let step = 0; step < count; step += 1) {
+        const offset = -reach + (2 * reach * step) / (count - 1);
+        first.push(profilePoint(corners, index, fits[index], 1 + offset));
+        second.push(profilePoint(corners, following, fits[following], offset));
+      }
+      let best = Infinity;
+      let point = null;
+      for (let a = 0; a < count; a += 1) {
+        for (let b = 0; b < count; b += 1) {
+          const distance = Math.hypot(first[a][0] - second[b][0], first[a][1] - second[b][1]);
+          if (distance < best) {
+            best = distance;
+            point = [(first[a][0] + second[b][0]) / 2, (first[a][1] + second[b][1]) / 2];
+          }
+        }
+      }
+      return { point, gap: best };
+    };
+
+    let corners = straight.corners.map((corner) => [corner[0], corner[1]]);
+    let fits = null;
+    for (let round = 0; round < Math.max(1, rounds); round += 1) {
+      const measured = [0, 1, 2, 3].map((index) => measure(corners, index));
+      if (measured.some((fit) => fit === null)) break;
+      fits = measured;
+      if (round + 1 >= rounds) break;
+      const moved = corners.map((corner) => [corner[0], corner[1]]);
+      for (let index = 0; index < 4; index += 1) {
+        const { point, gap } = meetingPoint(corners, index, fits);
+        if (gap < 0.02 * diagonal) moved[(index + 1) % 4] = point;
+      }
+      let travelled = 0;
+      for (let index = 0; index < 4; index += 1) {
+        travelled = Math.max(travelled, Math.hypot(moved[index][0] - corners[index][0],
+                                                   moved[index][1] - corners[index][1]));
+      }
+      corners = moved;
+      if (travelled < 0.5) break;
     }
-    return new CurvedQuad(curved.corners, controls);
+    if (!fits) return straight;
+
+    const controls = CurvedQuad.fromQuad(corners).controls.map((p) => [p[0], p[1]]);
+    const profiles = [];
+    let bent = false;
+    for (let index = 0; index < 4; index += 1) {
+      const row = new Float64Array(PROFILE_SAMPLES);
+      profiles.push(row);
+      const { start, direction, length, normal } = edgeFrame(corners, index);
+      if (length < 1e-6) continue;
+      const ends = [polyval2(fits[index], 0), polyval2(fits[index], 1)];
+      for (let step = 0; step < PROFILE_SAMPLES; step += 1) {
+        const t = step / (PROFILE_SAMPLES - 1);
+        // the ends belong to the corners, which the borders already agreed on
+        row[step] = polyval2(fits[index], t) - ((1 - t) * ends[0] + t * ends[1]);
+      }
+      const bulge = row[(PROFILE_SAMPLES - 1) >> 1];
+      if (Math.abs(bulge) > maxCurvature * length) { row.fill(0); continue; }
+      if (row.some((value) => value !== 0)) bent = true;
+      if (Math.abs(bulge) < STRAIGHT_LIMIT * length) continue;
+      const middle = [start[0] + direction[0] / 2 + normal[0] * bulge,
+                      start[1] + direction[1] / 2 + normal[1] * bulge];
+      controls[index] = controlFromMidpoint(start, [start[0] + direction[0],
+                                                    start[1] + direction[1]], middle);
+    }
+    return new CurvedQuad(corners, controls, bent ? profiles : null);
   });
 }
 
@@ -523,6 +763,9 @@ function bandPeaks(profile, minimum) {
  * How far a line wanders from its own average is the residual bend.
  * Returns null when the page does not hold enough text to measure.
  */
+/** Peaks that wander less than this are noise, not a bend (pixels). */
+const NO_BEND = 3.0;
+
 export function textLineField(image, { bands = 14, minLines = 5, maxShiftRatio = 0.08 } = {}) {
   const mask = inkMask(image);
   try {
@@ -601,7 +844,9 @@ export function textLineField(image, { bands = 14, minLines = 5, maxShiftRatio =
       for (const value of sample.shift) largest = Math.max(largest, Math.abs(value));
     }
     if (largest > maxShiftRatio * height) return null;   // implausible: not text lines
-    if (largest < 1.5) return new Float32Array(height * width);  // already straight
+    // wander of the detected peaks, not a bend worth resampling for: the
+  // border based flattening leaves this much on a page it got right
+  if (largest < NO_BEND) return new Float32Array(height * width);
 
     const columns = [];
     for (let column = 0; column < width; column += 1) columns.push(column);

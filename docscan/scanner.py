@@ -110,6 +110,11 @@ def scan_image(image, options=None, detection=None, outline=None):
         if options.flatten:
             # follow the real page border, which bends when the sheet is curled
             outline = refine_edges(image, detection.quad)
+    elif outline is not None and options.crop and options.flatten and outline.is_straight:
+        # a region picked by hand is placed by eye; with flattening asked for,
+        # the border around it is measured and the corners land on the paper.
+        # An edge the user bent on purpose is left exactly as drawn.
+        outline = refine_edges(image, outline.corners)
     if outline is not None and options.crop:
         if outline.is_straight:
             page = four_point_transform(image, outline.corners, aspect=options.aspect,

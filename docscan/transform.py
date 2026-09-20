@@ -94,14 +94,12 @@ def edge_lengths(ordered_quad):
     return float(width), float(height)
 
 
-def projective_aspect_ratio(ordered_quad, image_shape):
-    """Estimate the true width/height ratio of the rectangle behind a quad.
+def _rectification_vectors(ordered_quad, image_shape):
+    """The two vanishing directions and the principal point of a quad.
 
-    This implements the well known rectification approach (Zhang & He): the
-    perspective distortion of the quad is used to recover the camera focal
-    length, which in turn yields the aspect ratio of the original rectangle.
-    Returns ``None`` when the geometry carries no usable perspective
-    information (e.g. a fronto-parallel shot) or the result is degenerate.
+    The shared first half of the Zhang & He rectification: ``n2`` and ``n3``
+    are the images of the rectangle's two edge directions, and everything the
+    focal length and the aspect ratio need is in them.
     """
     tl, tr, br, bl = np.asarray(ordered_quad, dtype=np.float64)
     # the algorithm expects the corners as top-left, top-right, bottom-left, bottom-right
@@ -130,14 +128,44 @@ def projective_aspect_ratio(ordered_quad, image_shape):
         return None
     if abs(n2[2]) < 1e-9 or abs(n3[2]) < 1e-9:
         return None
+    return n2, n3, u0, v0
 
+
+def projective_focal(ordered_quad, image_shape):
+    """Camera focal length in pixels, from the perspective of a rectangle.
+
+    Returns ``None`` for a shot that carries no perspective (the corners of a
+    fronto-parallel page say nothing about the lens).
+    """
+    vectors = _rectification_vectors(ordered_quad, image_shape)
+    if vectors is None:
+        return None
+    n2, n3, u0, v0 = vectors
     f_squared = -((n2[0] * n3[0] - (n2[0] * n3[2] + n2[2] * n3[0]) * u0
                    + n2[2] * n3[2] * u0 * u0)
                   + (n2[1] * n3[1] - (n2[1] * n3[2] + n2[2] * n3[1]) * v0
                      + n2[2] * n3[2] * v0 * v0)) / (n2[2] * n3[2])
     if not np.isfinite(f_squared) or f_squared <= 0.0:
         return None
-    focal = float(np.sqrt(f_squared))
+    return float(np.sqrt(f_squared))
+
+
+def projective_aspect_ratio(ordered_quad, image_shape):
+    """Estimate the true width/height ratio of the rectangle behind a quad.
+
+    This implements the well known rectification approach (Zhang & He): the
+    perspective distortion of the quad is used to recover the camera focal
+    length, which in turn yields the aspect ratio of the original rectangle.
+    Returns ``None`` when the geometry carries no usable perspective
+    information (e.g. a fronto-parallel shot) or the result is degenerate.
+    """
+    vectors = _rectification_vectors(ordered_quad, image_shape)
+    if vectors is None:
+        return None
+    n2, n3, u0, v0 = vectors
+    focal = projective_focal(ordered_quad, image_shape)
+    if focal is None:
+        return None
 
     camera = np.array([[focal, 0.0, u0], [0.0, focal, v0], [0.0, 0.0, 1.0]])
     inverse = np.linalg.inv(camera)

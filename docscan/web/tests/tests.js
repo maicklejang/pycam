@@ -200,10 +200,13 @@ export async function runAll(fixturesUrl = "./fixtures/") {
     await check("every colour mode matches the python output", async () => {
       const source = await loadMat(fixturesUrl + fixtures.source);
       const detection = findDocument(source, {});
+      // the same steps scan_image takes: the border is measured first, which
+      // puts the corners on the paper even when the page is flat
+      const outline = refineEdges(source, detection.quad);
       const worst = [];
       for (const mode of MODES) {
         const expected = fixtures.modes[mode];
-        const rectified = fourPointTransform(source, detection.quad,
+        const rectified = fourPointTransform(source, outline.corners,
                                              { aspect: "auto", margin: -0.004 });
         const actual = enhance(rectified, mode);
         const reference = await loadMat(fixturesUrl + expected.file);
@@ -277,6 +280,48 @@ export async function runAll(fixturesUrl = "./fixtures/") {
       }
     });
 
+    await check("refineEdges puts the corners where python puts them", async () => {
+      const image = await loadMat(fixturesUrl + fixtures.curved.name);
+      try {
+        const detection = findDocument(image, {});
+        const curved = refineEdges(image, detection.quad);
+        let moved = 0;
+        let apart = 0;
+        curved.corners.forEach((corner, index) => {
+          const mine = fixtures.curved.corners[index];
+          const detected = fixtures.curved.detected[index];
+          apart = Math.max(apart, Math.hypot(corner[0] - mine[0], corner[1] - mine[1]));
+          moved = Math.max(moved, Math.hypot(mine[0] - detected[0], mine[1] - detected[1]));
+        });
+        // the detected quad misses a curled sheet's corners by a long way;
+        // both implementations have to move them to the same place
+        assert(moved > 20, `python only moved the corners ${moved.toFixed(1)} px`);
+        assert(apart < 2.5, `corners ${apart.toFixed(1)} px from python's`);
+        return `moved ${moved.toFixed(0)} px, within ${apart.toFixed(1)} px of python`;
+      } finally {
+        image.delete();
+      }
+    });
+
+    await check("the measured border matches python sample for sample", async () => {
+      const image = await loadMat(fixturesUrl + fixtures.curved.name);
+      try {
+        const curved = refineEdges(image, findDocument(image, {}).quad);
+        assert(curved.profiles, "no border profile was kept");
+        let worst = 0;
+        fixtures.curved.profiles.forEach((expected, edge) => {
+          expected.forEach((value, index) => {
+            worst = Math.max(worst, Math.abs(curved.profiles[edge][index] - value));
+          });
+        });
+        assert(worst < 2.0, `border off by ${worst.toFixed(2)} px`);
+        return `${fixtures.curved.profiles[0].length} samples per edge, `
+          + `within ${worst.toFixed(2)} px`;
+      } finally {
+        image.delete();
+      }
+    });
+
     await check("flatten reproduces the python output", async () => {
       const image = await loadMat(fixturesUrl + fixtures.curved.name);
       const reference = await loadMat(fixturesUrl + fixtures.curved.boundary.file);
@@ -298,7 +343,7 @@ export async function runAll(fixturesUrl = "./fixtures/") {
       }
     });
 
-    await check("the text line step straightens what the border leaves", async () => {
+    await check("the text lines need no fixing after the border is followed", async () => {
       const image = await loadMat(fixturesUrl + fixtures.curved.name);
       const reference = await loadMat(fixturesUrl + fixtures.curved.flattened.file);
       const detection = findDocument(image, {});
@@ -313,6 +358,8 @@ export async function runAll(fixturesUrl = "./fixtures/") {
         assert(field, "no text lines were found");
         let largest = 0;
         for (const value of field) largest = Math.max(largest, Math.abs(value));
+        // the flattening now gets the lines straight on its own, so this step
+        // has nothing left to do - python reports the same
         close(largest, fixtures.curved.text_shift, 1.0, "largest shift");
         cv.absdiff(left, right, difference);
         const mad = cv.mean(difference)[0];
@@ -321,6 +368,39 @@ export async function runAll(fixturesUrl = "./fixtures/") {
       } finally {
         [image, reference, flat, straight, left, right, difference]
           .forEach((mat) => mat.delete());
+      }
+    });
+
+    await check("a page bent by hand is straightened again", async () => {
+      // the fixture no longer needs this step - the border gets the lines
+      // straight on its own - so bend one on purpose to exercise it
+      const image = await loadMat(fixturesUrl + fixtures.curved.flattened.file);
+      const bowed = new cv.Mat();
+      const mapX = new cv.Mat(image.rows, image.cols, cv.CV_32FC1);
+      const mapY = new cv.Mat(image.rows, image.cols, cv.CV_32FC1);
+      for (let y = 0; y < image.rows; y += 1) {
+        for (let x = 0; x < image.cols; x += 1) {
+          const bow = 14 * Math.sin((Math.PI * x) / (image.cols - 1));
+          mapX.data32F[y * image.cols + x] = x;
+          mapY.data32F[y * image.cols + x] = y + bow;
+        }
+      }
+      cv.remap(image, bowed, mapX, mapY, cv.INTER_LINEAR, cv.BORDER_REPLICATE,
+               new cv.Scalar());
+      const field = textLineField(bowed);
+      const fixed = straightenTextLines(bowed);
+      const after = textLineField(fixed);
+      try {
+        assert(field, "the bowed page gave no text lines");
+        let before = 0;
+        for (const value of field) before = Math.max(before, Math.abs(value));
+        let left = 0;
+        if (after) for (const value of after) left = Math.max(left, Math.abs(value));
+        assert(before > 8, `only ${before.toFixed(1)} px of bow was measured`);
+        assert(left < before * 0.35, `${left.toFixed(1)} px left of ${before.toFixed(1)}`);
+        return `bow ${before.toFixed(1)} px -> ${left.toFixed(1)} px`;
+      } finally {
+        [image, bowed, mapX, mapY, fixed].forEach((mat) => mat.delete());
       }
     });
 

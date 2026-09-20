@@ -101,6 +101,8 @@ def main():
         "name": "curved.jpg",
         "corners": outline.corners.tolist(),
         "midpoints": outline.midpoints.tolist(),
+        "detected": order_corners(detection.quad).tolist(),
+        "profiles": np.round(outline.profiles, 4).tolist(),
         "curvature": [round(outline.edge_curvature(index), 5) for index in range(4)],
         "boundary": {"file": "python_boundary.png"},
         "flattened": {"file": "python_flattened.png",

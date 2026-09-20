@@ -57,12 +57,41 @@ def midpoint_from_control(start, control, end):
     return bezier_point(start, control, end, 0.5)
 
 
+#: how many points of each edge a measured border profile keeps
+PROFILE_SAMPLES = 129
+
+
+def edge_frame(corners, index):
+    """Start, direction and inward normal of one edge of a quad."""
+    start = np.asarray(corners[index], dtype=np.float64)
+    end = np.asarray(corners[(index + 1) % 4], dtype=np.float64)
+    direction = end - start
+    length = float(np.linalg.norm(direction))
+    if length < 1e-6:
+        return start, direction, 0.0, np.zeros(2)
+    normal = np.array([-direction[1], direction[0]]) / length
+    centre = np.asarray(corners, dtype=np.float64).mean(axis=0)
+    if np.dot(centre - (start + end) / 2.0, normal) < 0:
+        normal = -normal
+    return start, direction, length, normal
+
+
 @dataclass
 class CurvedQuad:
-    """Four corners plus one Bezier control point per edge."""
+    """Four corners plus one Bezier control point per edge.
+
+    A single quadratic per edge is what a person can actually drag, and it is
+    enough for the outline the app draws.  It is *not* enough to flatten a
+    strongly curled sheet, so when the border has been measured in the photo
+    the samples are kept alongside, in ``profiles``, and the flattening uses
+    those instead.  They are offsets from the straight chord along its inward
+    normal, so they are only meaningful for these corners: any edit that moves
+    a corner drops them.
+    """
 
     corners: np.ndarray          # (4, 2), ordered TL, TR, BR, BL
     controls: np.ndarray         # (4, 2), one per edge in EDGE_NAMES order
+    profiles: np.ndarray = None  # (4, PROFILE_SAMPLES) or None
 
     @classmethod
     def from_quad(cls, quad):
@@ -94,6 +123,26 @@ class CurvedQuad:
         """Sample edge ``index`` (see EDGE_NAMES) at parameter(s) ``t``."""
         return bezier_point(self.corners[index], self.controls[index],
                             self.corners[(index + 1) % 4], t)
+
+    def border(self, index, t):
+        """The page border along edge ``index`` - measured if it was measured.
+
+        ``edge`` is the Bezier the UI draws; this is what the flattening
+        follows, which is the same curve unless a profile was measured.
+        """
+        if self.profiles is None:
+            return self.edge(index, t)
+        start, direction, length, normal = edge_frame(self.corners, index)
+        if length < 1e-6:
+            return self.edge(index, t)
+        t = np.asarray(t, dtype=np.float64)
+        profile = np.asarray(self.profiles[index], dtype=np.float64)
+        offset = np.interp(t, np.linspace(0.0, 1.0, len(profile)), profile)
+        return start + direction * t[..., None] + normal * offset[..., None]
+
+    def without_profiles(self):
+        """The same outline as the plain Bezier one - what an edit leaves."""
+        return CurvedQuad(corners=self.corners.copy(), controls=self.controls.copy())
 
     def edge_length(self, index, samples=64):
         points = self.edge(index, np.linspace(0.0, 1.0, samples))
@@ -218,10 +267,10 @@ def boundary_curves(curved, width, height, samples=256):
         return cv2.perspectiveTransform(points.reshape(-1, 1, 2).astype(np.float64),
                                         matrix).reshape(-1, 2)
 
-    top = to_rect(curved.edge(0, t))            # TL -> TR
-    right = to_rect(curved.edge(1, t))          # TR -> BR
-    bottom = to_rect(curved.edge(2, t))[::-1]   # BR -> BL, reversed to BL -> BR
-    left = to_rect(curved.edge(3, t))[::-1]     # BL -> TL, reversed to TL -> BL
+    top = to_rect(curved.border(0, t))          # TL -> TR
+    right = to_rect(curved.border(1, t))        # TR -> BR
+    bottom = to_rect(curved.border(2, t))[::-1]  # BR -> BL, reversed to BL -> BR
+    left = to_rect(curved.border(3, t))[::-1]   # BL -> TL, reversed to TL -> BL
 
     xs = np.linspace(0.0, width - 1.0, width)
     ys = np.linspace(0.0, height - 1.0, height)
@@ -234,33 +283,125 @@ def boundary_curves(curved, width, height, samples=256):
     return curves, matrix
 
 
-def coons_maps(curved, width, height):
+def _even_arc_positions(first, second, focal, centre, count):
+    """Positions along an axis that sample the real sheet evenly.
+
+    Where the paper turns away from the camera it is foreshortened, and
+    sampling the rectified rectangle evenly squeezes the text there - the
+    difference between a photo that has been straightened and a page that has
+    been scanned.  The two ends of each ruling (a line across the sheet, given
+    here as ``first`` and ``second`` in photo pixels) say how much: the
+    ruling's image length is its distance, its position is its direction, and
+    together they give the sheet's cross-section up to one scale factor.
+    Sampling that at equal arc length unrolls the sheet.
+    """
+    span = np.linalg.norm(second - first, axis=1)
+    if not np.all(np.isfinite(span)) or float(np.min(span)) < 1e-6:
+        return None
+    middle = (first + second) / 2.0
+    ray = np.stack([(middle[:, 0] - centre[0]) / focal,
+                    (middle[:, 1] - centre[1]) / focal,
+                    np.ones(len(middle))], axis=-1)
+    section = ray / span[:, None]
+    walked = np.concatenate([[0.0], np.cumsum(
+        np.linalg.norm(np.diff(section, axis=0), axis=1))])
+    if walked[-1] <= 0.0:
+        return None
+    return walked / walked[-1]
+
+
+def _arc_positions(curved_ends, straight_ends, focal, centre, count):
+    """Sampling positions that undo the curl, and nothing else.
+
+    A ruling is also foreshortened by its own slant, which the perspective
+    transform has already dealt with, so the walk is compared against the same
+    walk over the straight outline instead of being used on its own.  On a
+    flat page the two are identical and the spacing stays even, to the pixel.
+    """
+    walked = _even_arc_positions(*curved_ends, focal, centre, count)
+    reference = _even_arc_positions(*straight_ends, focal, centre, count)
+    if walked is None or reference is None:
+        return None
+    # column j should cover as much paper as the flat model says it does
+    index = np.arange(count, dtype=np.float64)
+    return np.interp(reference, walked, index)
+
+
+def coons_maps(curved, width, height, focal=None, centre=None):
     """Sampling maps (in photo coordinates) of the flattened page.
 
     The Coons patch is built in rectified space, where the four borders are
     nearly straight, and the result is mapped back into the photo with the
-    inverse of the perspective transform - one interpolation, not two.
+    inverse of the perspective transform - one interpolation, not two.  With a
+    focal length the rows and columns are also spaced by the arc length of the
+    sheet rather than evenly, which is what unrolls a curl.
     """
     curves, matrix = boundary_curves(curved, width, height)
-    top, bottom = curves["top"], curves["bottom"]
-    left, right = curves["left"], curves["right"]
+    inverse = np.linalg.inv(matrix)
+    top_y = curves["top"][:, 1]
+    bottom_y = curves["bottom"][:, 1]
+    left_x = curves["left"][:, 0]
+    right_x = curves["right"][:, 0]
 
-    u = np.linspace(0.0, 1.0, width)[None, :, None]
-    v = np.linspace(0.0, 1.0, height)[:, None, None]
-    tl = np.array([0.0, 0.0])
-    tr = np.array([width - 1.0, 0.0])
-    br = np.array([width - 1.0, height - 1.0])
-    bl = np.array([0.0, height - 1.0])
+    xs = np.linspace(0.0, width - 1.0, width)
+    ys = np.linspace(0.0, height - 1.0, height)
+    columns, rows = xs.copy(), ys.copy()
+    if focal:
+        def to_photo(points):
+            return cv2.perspectiveTransform(
+                np.ascontiguousarray(points).reshape(-1, 1, 2), inverse).reshape(-1, 2)
 
-    surface = ((1.0 - v) * top[None, :, :] + v * bottom[None, :, :]
-               + (1.0 - u) * left[:, None, :] + u * right[:, None, :]
-               - ((1.0 - u) * (1.0 - v) * tl + u * (1.0 - v) * tr
-                  + u * v * br + (1.0 - u) * v * bl))
+        flat_x = np.zeros(width)
+        flat_y = np.zeros(height)
+        across = _arc_positions(
+            (to_photo(np.stack([xs, top_y], axis=-1)),
+             to_photo(np.stack([xs, bottom_y], axis=-1))),
+            (to_photo(np.stack([xs, flat_x], axis=-1)),
+             to_photo(np.stack([xs, flat_x + height - 1.0], axis=-1))),
+            focal, centre, width)
+        down = _arc_positions(
+            (to_photo(np.stack([left_x, ys], axis=-1)),
+             to_photo(np.stack([right_x, ys], axis=-1))),
+            (to_photo(np.stack([flat_y, ys], axis=-1)),
+             to_photo(np.stack([flat_y + width - 1.0, ys], axis=-1))),
+            focal, centre, height)
+        if across is not None:
+            columns = across
+            top_y = np.interp(columns, xs, top_y)
+            bottom_y = np.interp(columns, xs, bottom_y)
+        if down is not None:
+            rows = down
+            left_x = np.interp(rows, ys, left_x)
+            right_x = np.interp(rows, ys, right_x)
 
-    photo = cv2.perspectiveTransform(surface.reshape(-1, 1, 2), np.linalg.inv(matrix))
+    u = np.linspace(0.0, 1.0, width)[None, :]
+    v = np.linspace(0.0, 1.0, height)[:, None]
+    surface_x = (columns[None, :] + (1.0 - u) * left_x[:, None]
+                 + u * right_x[:, None] - u * (width - 1.0))
+    surface_y = (rows[:, None] + (1.0 - v) * top_y[None, :]
+                 + v * bottom_y[None, :] - v * (height - 1.0))
+
+    photo = cv2.perspectiveTransform(
+        np.stack([surface_x, surface_y], axis=-1).reshape(-1, 1, 2), inverse)
     photo = photo.reshape(height, width, 2)
     return (np.ascontiguousarray(photo[:, :, 0], dtype=np.float32),
             np.ascontiguousarray(photo[:, :, 1], dtype=np.float32))
+
+
+def camera_focal(curved, image_shape):
+    """Focal length in pixels to unroll a sheet photographed like this.
+
+    The perspective of the outline gives it when there is any; a shot taken
+    straight on carries none, and then the usual field of view of a phone
+    camera is a better guess than pretending the lens is flat.
+    """
+    from docscan.transform import projective_focal
+
+    longest = float(max(image_shape[:2]))
+    focal = projective_focal(curved.corners, image_shape)
+    if focal is None or not (0.3 * longest <= focal <= 4.0 * longest):
+        return 0.8 * longest
+    return focal
 
 
 def flatten(image, curved, size=None, aspect="auto", max_side=None, margin=0.0):
@@ -272,7 +413,9 @@ def flatten(image, curved, size=None, aspect="auto", max_side=None, margin=0.0):
     if size is None:
         size = flatten_size(curved, image.shape, aspect=aspect, max_side=max_side)
     width, height = size
-    map_x, map_y = coons_maps(curved, width, height)
+    centre = (image.shape[1] / 2.0, image.shape[0] / 2.0)
+    map_x, map_y = coons_maps(curved, width, height,
+                              focal=camera_focal(curved, image.shape), centre=centre)
     return cv2.remap(image, map_x, map_y, interpolation=cv2.INTER_CUBIC,
                      borderMode=cv2.BORDER_REPLICATE)
 
@@ -324,19 +467,83 @@ def _levels(image, quad, band):
     return gray, float(np.median(small[core > 0])), float(np.median(small[ring > 0]))
 
 
-def refine_edges(image, quad, search_ratio=0.03, samples=25, offsets=61,
-                 max_curvature=0.25, hold=4):
-    """Follow the real page border and return a :class:`CurvedQuad`.
+def _measure_profile(gray, corners, index, levels, band, samples, offsets, hold, degree):
+    """Offsets of the real border from one chord, as a polynomial in t.
 
-    Every edge is sampled at a number of positions and, at each of them, the
+    The edge is sampled at a number of positions and, at each of them, the
     brightness is read along the edge normal from outside the page inwards.
     The border is where the profile changes from background to paper and stays
     there - not simply where the gradient is strongest, because the first line
     of text is a stronger edge than the rim of the sheet, and a textured
     surface (wood, cloth) is full of strong edges of its own.
+    """
+    page_level, background_level = levels
+    start, direction, length, normal = edge_frame(corners, index)
+    if length < 1e-6:
+        return None
+    # skip the corners: the border bends there and the fit would chase it
+    t = np.linspace(0.10, 0.90, samples)
+    steps = np.linspace(-band, band, offsets)
+    base = start + direction * t[:, None]
+    candidates = base[:, None, :] + normal[None, None, :] * steps[None, :, None]
+    values = _sample(gray, candidates, default=background_level)
+    page_like = (np.abs(values - page_level)
+                 < np.abs(values - background_level)).astype(np.int8)
 
-    A quadratic is fitted through the offsets found, and edges that stay close
-    to their straight chord are left straight, so a flat page is unaffected.
+    # the border is the first offset from which the profile stays on the page
+    # for at least `hold` steps
+    window = np.ones(hold, dtype=np.int8)
+    sustained = np.apply_along_axis(
+        lambda row: np.convolve(row, window, mode="valid") == hold, 1, page_like)
+    has_border = sustained.any(axis=1)
+    shift = np.where(has_border, steps[np.argmax(sustained, axis=1)], np.nan)
+    if np.count_nonzero(has_border) < max(4, samples // 2):
+        return None
+    valid = ~np.isnan(shift)
+    fit = np.polyfit(t[valid], shift[valid], degree)
+    residual = shift[valid] - np.polyval(fit, t[valid])
+    if float(np.std(residual)) > 0.3 * band:
+        return None            # noisy: the border was not followed reliably
+    return fit
+
+
+def _profile_points(corners, index, fit, t):
+    """Points of a fitted border, in photo coordinates."""
+    start, direction, length, normal = edge_frame(corners, index)
+    t = np.asarray(t, dtype=np.float64)
+    return (start + direction * t[:, None]
+            + normal * np.polyval(fit, t)[:, None])
+
+
+def _meeting_point(corners, index, fits, reach=0.35, count=257):
+    """Where the end of one fitted border crosses the start of the next.
+
+    A detector can only fit a straight quad, and the extreme points of a
+    curled sheet's silhouette are not its corners - at a strong curl they miss
+    by tens of pixels, and every later step is anchored to them.  The borders
+    are measured away from the corners, where they behave, so extending them
+    until they cross puts the corner back where the paper actually ends.
+    """
+    following = (index + 1) % 4
+    first = _profile_points(corners, index, fits[index],
+                            np.linspace(1.0 - reach, 1.0 + reach, count))
+    second = _profile_points(corners, following, fits[following],
+                             np.linspace(-reach, reach, count))
+    distance = np.linalg.norm(first[:, None, :] - second[None, :, :], axis=-1)
+    a, b = np.unravel_index(np.argmin(distance), distance.shape)
+    return (first[a] + second[b]) / 2.0, float(distance[a, b])
+
+
+def refine_edges(image, quad, search_ratio=0.03, samples=41, offsets=61,
+                 max_curvature=0.25, hold=4, rounds=2, degree=2):
+    """Follow the real page border and return a :class:`CurvedQuad`.
+
+    Each edge is measured in the photo (see :func:`_measure_profile`), the
+    corners are moved to where those borders meet, and the measurement is
+    repeated from there.  The result carries both the samples, which the
+    flattening follows, and one Bezier per edge, which is what the app draws
+    and what people drag.  Edges that stay close to their straight chord are
+    left straight, so a flat page is unaffected.
     """
     curved = CurvedQuad.from_quad(quad)
     diagonal = float(np.hypot(*image.shape[:2]))
@@ -344,56 +551,53 @@ def refine_edges(image, quad, search_ratio=0.03, samples=25, offsets=61,
     gray, page_level, background_level = _levels(image, curved.corners, band)
     if page_level is None or abs(page_level - background_level) < 12:
         return curved          # not enough contrast to tell page from background
+    levels = (page_level, background_level)
 
-    steps = np.linspace(-band, band, offsets)
-    controls = curved.controls.copy()
-    centre = curved.corners.mean(axis=0)
+    corners = curved.corners
+    fits = None
+    for round_index in range(max(1, rounds)):
+        measured = [_measure_profile(gray, corners, index, levels, band,
+                                     samples, offsets, hold, degree)
+                    for index in range(4)]
+        if any(fit is None for fit in measured):
+            break
+        fits = measured
+        if round_index + 1 >= rounds:
+            break
+        moved = corners.copy()
+        for index in range(4):
+            point, gap = _meeting_point(corners, index, fits)
+            if gap < 0.02 * diagonal:
+                moved[(index + 1) % 4] = point
+        travelled = float(np.max(np.linalg.norm(moved - corners, axis=1)))
+        corners = moved
+        if travelled < 0.5:
+            break
+    if fits is None:
+        return curved
 
+    t = np.linspace(0.0, 1.0, PROFILE_SAMPLES)
+    profiles = np.zeros((4, PROFILE_SAMPLES))
+    controls = CurvedQuad.from_quad(corners).controls.copy()
     for index in range(4):
-        start = curved.corners[index]
-        end = curved.corners[(index + 1) % 4]
-        direction = end - start
-        length = float(np.linalg.norm(direction))
+        start, direction, length, normal = edge_frame(corners, index)
         if length < 1e-6:
             continue
-        normal = np.array([-direction[1], direction[0]]) / length
-        if np.dot(centre - (start + end) / 2.0, normal) < 0:
-            normal = -normal   # point into the page
-
-        # skip the corners: the border bends there and the fit would chase it
-        t = np.linspace(0.12, 0.88, samples)
-        base = start + direction * t[:, None]
-        candidates = base[:, None, :] + normal[None, None, :] * steps[None, :, None]
-        values = _sample(gray, candidates, default=background_level)
-        page_like = (np.abs(values - page_level)
-                     < np.abs(values - background_level)).astype(np.int8)
-
-        # the border is the first offset from which the profile stays on the
-        # page for at least `hold` steps
-        window = np.ones(hold, dtype=np.int8)
-        sustained = np.apply_along_axis(
-            lambda row: np.convolve(row, window, mode="valid") == hold, 1, page_like)
-        has_border = sustained.any(axis=1)
-        crossing = np.argmax(sustained, axis=1)
-        shift = np.where(has_border, steps[crossing], np.nan)
-
-        if np.count_nonzero(has_border) < max(4, samples // 2):
-            continue
-        valid = ~np.isnan(shift)
-        fit = np.polyfit(t[valid], shift[valid], 2)
-        residual = shift[valid] - np.polyval(fit, t[valid])
-        if float(np.std(residual)) > 0.3 * band:
-            continue           # noisy: the border was not followed reliably
-        bulge = float(np.polyval(fit, 0.5)
-                      - 0.5 * (np.polyval(fit, 0.0) + np.polyval(fit, 1.0)))
+        offset = np.polyval(fits[index], t)
+        # the ends belong to the corners, which the borders already agreed on
+        offset -= (1.0 - t) * offset[0] + t * offset[-1]
+        bulge = float(offset[len(offset) // 2])
         if abs(bulge) > max_curvature * length:
             continue           # implausible for a page
+        profiles[index] = offset
         if abs(bulge) < CurvedQuad.STRAIGHT_LIMIT * length:
             continue           # straight enough; keep the straight edge
-        middle = (start + end) / 2.0 + normal * bulge
-        controls[index] = control_from_midpoint(start, end, middle)
+        middle = (start + direction / 2.0) + normal * bulge
+        controls[index] = control_from_midpoint(start, start + direction, middle)
 
-    return CurvedQuad(corners=curved.corners, controls=controls)
+    if not np.any(profiles):
+        return CurvedQuad(corners=corners, controls=controls)
+    return CurvedQuad(corners=corners, controls=controls, profiles=profiles)
 
 
 def _ink_mask(image):
@@ -424,6 +628,10 @@ def _band_peaks(column_sums, minimum):
             peaks.append((start + row) / 2.0)
         row += 1
     return peaks
+
+
+#: peaks that wander less than this are noise, not a bend (pixels)
+NO_BEND = 3.0
 
 
 def text_line_field(image, bands=14, min_lines=5, max_shift_ratio=0.08):
@@ -492,8 +700,9 @@ def text_line_field(image, bands=14, min_lines=5, max_shift_ratio=0.08):
     limit = max_shift_ratio * height
     if np.max(np.abs(shifts)) > limit:
         return None                                       # implausible: not text lines
-    if np.max(np.abs(shifts)) < 1.5:
-        # sub pixel wander of the detected peaks, not a bend worth resampling for
+    if np.max(np.abs(shifts)) < NO_BEND:
+        # wander of the detected peaks, not a bend worth resampling for: the
+        # border based flattening leaves this much on a page it got right
         return np.zeros((height, width), np.float32)
 
     # interpolate across the page: along x between band centres, along y

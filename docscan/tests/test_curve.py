@@ -9,12 +9,13 @@ if HAVE_OPENCV:
 
     import cv2
 
-    from docscan.curve import (CurvedQuad, bezier_point, control_from_midpoint, flatten,
-                               flatten_size, midpoint_from_control, refine_edges,
-                               straighten_text_lines, text_line_field)
+    from docscan.curve import (CurvedQuad, bezier_point, camera_focal, control_from_midpoint,
+                               coons_maps, flatten, flatten_size, midpoint_from_control,
+                               refine_edges, straighten_text_lines, text_line_field)
     from docscan.detect import find_document
     from docscan.scanner import ScanOptions, scan_image
-    from docscan.tests.synthetic import photograph, render_curved_photo, render_page
+    from docscan.tests.synthetic import (flatness, photograph, render_curved_photo,
+                                         render_page)
     from docscan.transform import four_point_transform, order_corners
 
 RECTANGLE = [[0, 0], [200, 0], [200, 100], [0, 100]]
@@ -165,6 +166,55 @@ class TestFlatten(unittest.TestCase):
             after, before * 0.7,
             "flattening left {:.1f} px of wobble (was {:.1f})".format(after, before))
 
+    def test_a_curled_page_comes_out_as_flat_as_a_scan(self):
+        image, _, truth = render_curved_photo(arc=0.9, with_truth=True)
+        curved = refine_edges(image, find_document(image).quad)
+        width, height = flatten_size(curved, image.shape, aspect="auto")
+        centre = (image.shape[1] / 2.0, image.shape[0] / 2.0)
+        focal = camera_focal(curved, image.shape)
+        even = flatness(*coons_maps(curved, width, height), truth)
+        unrolled = flatness(*coons_maps(curved, width, height, focal=focal, centre=centre),
+                            truth)
+        # sampling the rectified rectangle evenly squeezes the text where the
+        # paper turns away from the camera; following the sheet does not
+        self.assertLess(unrolled["across"], 0.6,
+                        "{:.2f} % of the page width left".format(unrolled["across"]))
+        self.assertLess(unrolled["across"], even["across"] * 0.5,
+                        "{:.2f} % against {:.2f} % with even spacing".format(
+                            unrolled["across"], even["across"]))
+        self.assertLess(unrolled["down"], 0.3)
+
+    def test_a_barely_curled_page_is_sampled_evenly(self):
+        # the spacing correction is measured against the straight outline, so
+        # a page that is not curled must come out exactly as before
+        image, _, truth = render_curved_photo(arc=0.05, with_truth=True)
+        curved = refine_edges(image, find_document(image).quad)
+        width, height = flatten_size(curved, image.shape, aspect="auto")
+        centre = (image.shape[1] / 2.0, image.shape[0] / 2.0)
+        even = flatness(*coons_maps(curved, width, height), truth)
+        unrolled = flatness(*coons_maps(curved, width, height,
+                                        focal=camera_focal(curved, image.shape),
+                                        centre=centre), truth)
+        for axis in ("across", "down"):
+            self.assertLess(unrolled[axis], max(0.1, even[axis] * 1.2),
+                            "{} went from {:.2f} to {:.2f} %".format(
+                                axis, even[axis], unrolled[axis]))
+
+    def test_the_stronger_the_curl_the_more_it_helps(self):
+        gains = []
+        for arc in (0.4, 0.9, 1.3):
+            image, _, truth = render_curved_photo(arc=arc, with_truth=True)
+            curved = refine_edges(image, find_document(image).quad)
+            size = flatten_size(curved, image.shape, aspect="auto")
+            centre = (image.shape[1] / 2.0, image.shape[0] / 2.0)
+            result = flatness(*coons_maps(curved, *size,
+                                          focal=camera_focal(curved, image.shape),
+                                          centre=centre), truth)
+            gains.append(result["worst"])
+        # even the hardest curl stays within half a per cent of the page width
+        self.assertLess(max(gains), 0.7, "worst residual warp {}".format(
+            [round(value, 2) for value in gains]))
+
     def test_the_whole_pipeline_gets_the_text_nearly_straight(self):
         image, _ = render_curved_photo(arc=0.9)
         bent = scan_image(image, ScanOptions(mode="none", flatten=False))
@@ -191,11 +241,25 @@ class TestRefineEdges(unittest.TestCase):
         self.assertFalse(curved.is_straight)
         self.assertGreater(curved.curvature(), 0.02)
 
-    def test_the_corners_are_left_alone(self):
-        image, _ = render_curved_photo(arc=0.9)
-        quad = find_document(image).quad
+    def test_the_corners_move_onto_the_real_ones(self):
+        # the detector can only fit a straight quad, and the extreme points of
+        # a curled sheet's silhouette are not its corners: here two of them are
+        # out by 20 and 60 px, which no later step could recover from
+        image, truth = render_curved_photo(arc=0.9)
+        quad = order_corners(find_document(image).quad)
         curved = refine_edges(image, quad)
-        np.testing.assert_allclose(curved.corners, order_corners(quad))
+        truth = order_corners(truth)
+        before = np.max(np.linalg.norm(quad - truth, axis=1))
+        after = np.max(np.linalg.norm(curved.corners - truth, axis=1))
+        self.assertGreater(before, 20.0, "the detected quad is already right")
+        self.assertLess(after, 5.0, "corners are still {:.1f} px out".format(after))
+
+    def test_a_flat_page_keeps_its_corners(self):
+        image, _ = photograph(background="wood", lighting=0.4)
+        quad = order_corners(find_document(image).quad)
+        curved = refine_edges(image, quad)
+        moved = np.max(np.linalg.norm(curved.corners - quad, axis=1))
+        self.assertLess(moved, 8.0, "corners moved {:.1f} px on a flat page".format(moved))
 
     def test_only_the_genuinely_curved_edge_is_bent(self):
         # the sheet is wrapped around a vertical cylinder, so its sides stay
@@ -282,11 +346,33 @@ class TestScanWithFlattening(unittest.TestCase):
         image, _ = photograph(background="wood")
         corners = [[100, 80], [520, 90], [530, 600], [110, 590]]
         outline = CurvedQuad.from_quad(corners)
-        result = scan_image(image, ScanOptions(mode="none"), outline=outline)
+        result = scan_image(image, ScanOptions(mode="none", flatten=False), outline=outline)
         self.assertTrue(result.cropped)
         self.assertIs(result.outline, outline)
         # the detector must not override what the user picked
         self.assertIsNone(result.detection)
+
+    def test_a_region_inside_the_page_is_not_pulled_to_the_border(self):
+        # flattening measures the border around a hand placed region, and a
+        # region that is all paper has none - it must come back as drawn
+        image, _ = photograph(background="wood")
+        corners = [[100, 80], [520, 90], [530, 600], [110, 590]]
+        result = scan_image(image, ScanOptions(mode="none"),
+                            outline=CurvedQuad.from_quad(corners))
+        moved = np.max(np.linalg.norm(result.outline.corners - order_corners(corners), axis=1))
+        self.assertLess(moved, 2.0, "corners moved {:.1f} px".format(moved))
+
+    def test_a_hand_placed_region_snaps_onto_the_paper(self):
+        image, quad = photograph(background="wood", lighting=0.4)
+        truth = order_corners(quad)
+        # as a finger would place them: a handful of pixels inside the page
+        rough = truth + np.array([[9, 7], [-8, 6], [-7, -9], [8, -8]], dtype=np.float64)
+        result = scan_image(image, ScanOptions(mode="none"),
+                            outline=CurvedQuad.from_quad(rough))
+        before = np.max(np.linalg.norm(rough - truth, axis=1))
+        after = np.max(np.linalg.norm(result.outline.corners - truth, axis=1))
+        self.assertLess(after, before * 0.6,
+                        "{:.1f} px out, was {:.1f}".format(after, before))
 
     def test_a_manual_curved_outline_is_flattened(self):
         image, _ = photograph(background="wood")

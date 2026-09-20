@@ -84,7 +84,8 @@ def photograph(background="wood", rotation=(0.35, 0.4, 0.12), distance=1.7, foca
 
 def render_curved_photo(page=None, arc=0.9, page_width=1.0, page_height=1.4,
                         rotation=(0.25, 0.30, 0.08), distance=3.2, focal=1500.0,
-                        size=(1080, 1920), background="wood", seed=0, radius=None):
+                        size=(1080, 1920), background="wood", seed=0, radius=None,
+                        with_truth=False):
     """Photograph a page that is curled around a cylinder.
 
     Unlike :func:`photograph`, which pastes a flat sheet, this renders the page
@@ -145,4 +146,49 @@ def render_curved_photo(page=None, arc=0.9, page_width=1.0, page_height=1.4,
                 focal * camera[1] / camera[2] + centre_y]
 
     corners = np.array([project(0, 0), project(1, 0), project(1, 1), project(0, 1)])
-    return image, corners
+    if not with_truth:
+        return image, corners
+    truth = {"across": across, "down": down, "usable": usable,
+             "ratio": page_height / page_width}
+    return image, corners, truth
+
+
+def flatness(map_x, map_y, truth, step=8):
+    """How much warp a flattening left behind, in per cent of the page width.
+
+    ``truth`` comes from :func:`render_curved_photo`: for every photo pixel it
+    holds the point of the page that is shown there.  Reading it through a
+    flattening's sampling maps therefore gives the page coordinate of every
+    output pixel, and a perfect result makes that an affine function of the
+    output pixel - so what is left over after the best affine fit is exactly
+    the warp that survived.
+
+    ``across`` is the error along the page width, ``down`` along its height;
+    both are scaled to the page width so that they can be compared.
+    """
+    height, width = map_x.shape[:2]
+    rows, columns = np.mgrid[0:height:step, 0:width:step]
+    sample_x = np.ascontiguousarray(map_x[::step, ::step], dtype=np.float32)
+    sample_y = np.ascontiguousarray(map_y[::step, ::step], dtype=np.float32)
+
+    def read(plane):
+        return cv2.remap(plane.astype(np.float32), sample_x, sample_y,
+                         cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+    across, down = read(truth["across"]), read(truth["down"])
+    # ignore anything that is not the page, and the last per cent at its rim
+    usable = ((read(truth["usable"].astype(np.float32)) > 0.99)
+              & (across > 0.02) & (across < 0.98) & (down > 0.02) & (down < 0.98))
+    if np.count_nonzero(usable) < 200:
+        return None
+    design = np.stack([columns[usable] / width, rows[usable] / height,
+                       np.ones(np.count_nonzero(usable))], axis=-1)
+    result = {"samples": int(np.count_nonzero(usable))}
+    for name, target, scale in (("across", across[usable], 1.0),
+                                ("down", down[usable], truth["ratio"])):
+        fit = np.linalg.lstsq(design, target, rcond=None)[0]
+        error = np.abs(target - design @ fit) * scale * 100.0
+        result[name] = float(np.sqrt(np.mean(error ** 2)))
+        result[name + "_max"] = float(np.max(error))
+    result["worst"] = max(result["across"], result["down"])
+    return result

@@ -103,13 +103,13 @@ function dot3(a, b) {
 }
 
 /**
- * Recover the true width/height ratio of the rectangle behind a quad.
+ * The two vanishing directions and the principal point of a quad.
  *
- * The perspective distortion determines the camera focal length, which in turn
- * gives the original aspect ratio (Zhang & He).  Returns null when the shape
- * carries no perspective information (a fronto-parallel shot).
+ * The shared first half of the Zhang & He rectification: n2 and n3 are the
+ * images of the rectangle's two edge directions, and everything the focal
+ * length and the aspect ratio need is in them.
  */
-export function projectiveAspectRatio(ordered, width, height) {
+function rectificationVectors(ordered, width, height) {
   const [tl, tr, br, bl] = ordered;
   const m1 = [tl[0], tl[1], 1];
   const m2 = [tr[0], tr[1], 1];
@@ -128,13 +128,40 @@ export function projectiveAspectRatio(ordered, width, height) {
   const n2 = [k2 * m2[0] - m1[0], k2 * m2[1] - m1[1], k2 * m2[2] - m1[2]];
   const n3 = [k3 * m3[0] - m1[0], k3 * m3[1] - m1[1], k3 * m3[2] - m1[2]];
   if (Math.abs(n2[2]) < 1e-9 || Math.abs(n3[2]) < 1e-9) return null;
+  return { n2, n3, u0, v0 };
+}
 
+/**
+ * Camera focal length in pixels, from the perspective of a rectangle.
+ *
+ * Returns null for a shot that carries no perspective: the corners of a
+ * fronto-parallel page say nothing about the lens.
+ */
+export function projectiveFocal(ordered, width, height) {
+  const vectors = rectificationVectors(ordered, width, height);
+  if (!vectors) return null;
+  const { n2, n3, u0, v0 } = vectors;
   const focalSquared = -((n2[0] * n3[0] - (n2[0] * n3[2] + n2[2] * n3[0]) * u0
                           + n2[2] * n3[2] * u0 * u0)
                          + (n2[1] * n3[1] - (n2[1] * n3[2] + n2[2] * n3[1]) * v0
                             + n2[2] * n3[2] * v0 * v0)) / (n2[2] * n3[2]);
   if (!Number.isFinite(focalSquared) || focalSquared <= 0) return null;
-  const focal = Math.sqrt(focalSquared);
+  return Math.sqrt(focalSquared);
+}
+
+/**
+ * Recover the true width/height ratio of the rectangle behind a quad.
+ *
+ * The perspective distortion determines the camera focal length, which in turn
+ * gives the original aspect ratio (Zhang & He).  Returns null when the shape
+ * carries no perspective information (a fronto-parallel shot).
+ */
+export function projectiveAspectRatio(ordered, width, height) {
+  const vectors = rectificationVectors(ordered, width, height);
+  if (!vectors) return null;
+  const { n2, n3, u0, v0 } = vectors;
+  const focal = projectiveFocal(ordered, width, height);
+  if (focal === null) return null;
 
   // n . (A^-T A^-1) n  with A = [[f,0,u0],[0,f,v0],[0,0,1]]
   const metric = (n) => {
