@@ -46,7 +46,6 @@
   function download(name, text, mime) {
     if (!canDownload) {
       copy(text);
-      toast("이 화면에서는 파일 저장이 막혀 있어 클립보드에 복사했습니다");
       return;
     }
     const blob = new Blob([text], { type: mime || "text/plain;charset=utf-8" });
@@ -56,14 +55,33 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  function copy(text) {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).then(() => toast("복사했습니다"), () => toast("복사 실패"));
-    } else {
+  /* 클립보드 API 가 막힌 환경(임베드·비보안 연결)에서는 옛 방식으로 한 번 더 시도한다 */
+  function legacyCopy(text) {
+    try {
       const ta = document.createElement("textarea");
-      ta.value = text; document.body.appendChild(ta); ta.select();
-      try { document.execCommand("copy"); toast("복사했습니다"); } catch (e) { toast("복사 실패"); }
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
       ta.remove();
+      return ok;
+    } catch (e) { return false; }
+  }
+  function copy(text) {
+    const fallback = () => {
+      if (legacyCopy(text)) toast("복사했습니다");
+      else {
+        toast("자동 복사가 막혀 있습니다. 아래 칸을 직접 선택해 복사하세요");
+        const ta = $("#gText");
+        if (ta) { ta.focus(); ta.select(); }
+      }
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(() => toast("복사했습니다"), fallback);
+    } else {
+      fallback();
     }
   }
   function machineLabel(m) {
@@ -822,9 +840,34 @@
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
     $$("#tabbar button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
     setView("calc");
+    /*
+     * 오프라인 캐시는 이 앱이 자기 주소에서 단독으로 열릴 때만 쓴다.
+     * 미리보기·임베드(iframe)처럼 주소를 다른 페이지와 공유하는 환경에서 등록하면
+     * 캐시가 그 주소를 가로채 엉뚱한 페이지가 열린다. 이미 등록된 것이 있으면 지운다.
+     */
     if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+      if (location.protocol !== "file:" && canDownload) {
+        window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+      } else {
+        cleanupServiceWorker();
+      }
     }
+  }
+
+  function cleanupServiceWorker() {
+    try {
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        regs.forEach((r) => {
+          const url = (r.active || r.installing || r.waiting || {}).scriptURL || "";
+          if (/\/sw\.js(\?|$)/.test(url)) r.unregister();
+        });
+      }).catch(() => {});
+      if (window.caches) {
+        caches.keys().then((keys) => {
+          keys.forEach((k) => { if (k.indexOf("laser-guide") === 0) caches.delete(k); });
+        }).catch(() => {});
+      }
+    } catch (e) { /* 저장소가 막힌 환경 */ }
   }
   document.addEventListener("DOMContentLoaded", init);
 })();
