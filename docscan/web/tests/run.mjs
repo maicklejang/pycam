@@ -161,6 +161,26 @@ async function main() {
       await page.waitForSelector("#editor", { state: "hidden" });
     };
 
+    await step("the shot keeps every pixel the camera gives", async () => {
+      const camera = await page.evaluate(() => {
+        const video = document.getElementById("video");
+        return [video.videoWidth, video.videoHeight];
+      });
+      await page.click("#shutter");
+      await page.waitForSelector("#editor", { state: "visible", timeout: 60000 });
+      const shown = await page.$eval("#editor-size", (node) => node.textContent);
+      const [width, height] = shown.split("×").map(Number);
+      // a still may be larger than the preview (ImageCapture) but never
+      // smaller: cropping a page out of a preview frame is what makes small
+      // print unreadable
+      if (!(width >= camera[0] && height >= camera[1])) {
+        throw new Error(`shot ${shown} against a ${camera.join("×")} camera`);
+      }
+      await page.click("#editor-cancel");
+      await page.waitForSelector("#editor", { state: "hidden", timeout: 60000 });
+      return `${shown} from a ${camera.join("×")} preview`;
+    });
+
     await step("the shutter opens the region editor with the page outlined", async () => {
       await openShutter();
       const outline = await page.evaluate(() => {

@@ -117,6 +117,11 @@ export function openEditor(photo, { flatten = true, detect = true } = {}) {
     offsetY: 0,
   };
 
+  const size = grab("editor-size");
+  // the shot's own resolution, which is what decides whether small print
+  // survives: a preview frame and a real still are worlds apart
+  size.textContent = `${photo.width}×${photo.height}`;
+
   hint.textContent = detected && !detected.found
     ? "문서를 찾지 못했습니다 — 모서리를 직접 맞춰주세요"
     : "모서리를 끌어 맞추고, 변의 손잡이로 휜 정도를 조절하세요";

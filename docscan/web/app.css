@@ -364,6 +364,15 @@ body {
   line-height: 1.4;
 }
 
+.editor__size {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
 .editor__stage {
   flex: 1;
   min-height: 0;

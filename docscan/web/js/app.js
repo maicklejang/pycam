@@ -22,6 +22,11 @@ const STABLE_FRAMES = 6;          // detections a page must hold still for
 const STABLE_TOLERANCE = 0.015;   // fraction of the frame diagonal
 const AUTO_COOLDOWN = 2500;       // ms between two automatic captures
 const MARGIN = -0.004;            // crop a hair inside the detected outline
+const PREVIEW_SIDE = 1920;        // live preview when a still camera is available
+const CAPTURE_SIDE = 4096;        // longest side the pipeline will work on
+const PAGE_SIDE = 3508;           // longest side of a finished page: A4 at 300 dpi
+const PHOTO_TIMEOUT = 5000;       // ms to wait for a full resolution still
+const LOW_PIXELS = 2.5e6;         // below this a shot is too soft for small print
 
 const ui = {
   status: document.getElementById("status"),
@@ -74,6 +79,8 @@ const state = {
   cv: null,
   stream: null,
   track: null,
+  photo: null,                    // ImageCapture, where the browser has it
+  sourceSize: null,               // what the last shot was actually taken at
   facing: "environment",
   mode: localStorage.getItem("docscan.mode") || "color",
   auto: localStorage.getItem("docscan.auto") === "1",
@@ -392,9 +399,12 @@ async function scanSource(source, { outline = null, flattenPage = state.flatten 
     if (!used) {
       page = image.clone();
     } else if (used.isStraight) {
-      page = fourPointTransform(image, used.corners, { aspect: "auto", margin: MARGIN });
+      // the page is capped at 300 dpi for A4: past that the scan is no
+      // sharper, the PDF is heavier and every step costs seconds on a phone
+      page = fourPointTransform(image, used.corners,
+                                { aspect: "auto", margin: MARGIN, maxSide: PAGE_SIDE });
     } else {
-      page = flatten(image, used, { aspect: "auto" });
+      page = flatten(image, used, { aspect: "auto", maxSide: PAGE_SIDE });
     }
     owned.push(page);
 
@@ -440,13 +450,77 @@ function videoFrameCanvas() {
   return canvas;
 }
 
+/** Draw a bitmap into a canvas, shrunk if it is bigger than the pipeline wants. */
+function bitmapCanvas(bitmap, maxSide = CAPTURE_SIDE) {
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+/**
+ * The sharpest frame the camera can give.
+ *
+ * A preview frame is not what the camera can do: the stream is scaled down so
+ * that it can be shown at 30 fps, and small print in a 1280x720 frame is a few
+ * pixels tall and turns to mush.  Where the browser has `ImageCapture` the
+ * shutter takes a real still instead, at the sensor's own resolution - eight
+ * megapixels and up on a phone, where the same print is legible.  When that is
+ * missing (Safari has no ImageCapture) the stream itself was asked for the
+ * highest resolution the camera offers, so the frame is the best there is.
+ */
+async function capturedCanvas() {
+  if (state.photo) {
+    try {
+      const options = {};
+      if (state.photo.getPhotoCapabilities) {
+        const able = await state.photo.getPhotoCapabilities().catch(() => null);
+        if (able && able.imageWidth && able.imageWidth.max) {
+          options.imageWidth = able.imageWidth.max;
+          if (able.imageHeight && able.imageHeight.max) {
+            options.imageHeight = able.imageHeight.max;
+          }
+        }
+      }
+      const shoot = async (settings) => Promise.race([
+        state.photo.takePhoto(settings),
+        new Promise((resolve, reject) => setTimeout(
+          () => reject(new Error("timeout")), PHOTO_TIMEOUT)),
+      ]);
+      // the size hints are hints: a camera that will not take a picture at
+      // the size it advertised still takes one at its own
+      const blob = await shoot(options).catch(() => shoot({}));
+      // EXIF matters here: a still comes out of the sensor in its own
+      // orientation, while a preview frame is already upright
+      const bitmap = await createImageBitmap(blob, { imageOrientation: "from-image" });
+      const canvas = bitmapCanvas(bitmap);
+      bitmap.close();
+      const frame = ui.video.videoWidth * ui.video.videoHeight;
+      if (canvas.width * canvas.height >= frame) return canvas;
+      // some cameras hand back a still no bigger than the preview they are
+      // already showing; then the preview is the one worth enlarging
+      state.photo = null;
+      await raiseStreamResolution();
+    } catch (error) {
+      // some cameras advertise stills and then refuse to take one; from here
+      // on use the stream, and make it as large as the camera allows
+      state.photo = null;
+      await raiseStreamResolution();
+    }
+  }
+  return videoFrameCanvas();
+}
+
 async function capture() {
   if (state.busy || !ui.video.videoWidth) return;
   state.busy = true;
   ui.shutter.disabled = true;
   flash();
   try {
-    const frame = videoFrameCanvas();
+    const frame = await capturedCanvas();
+    state.sourceSize = [frame.width, frame.height];
     state.lastCapture = performance.now();
     state.stableCount = 0;
     // the region is confirmed on the full frame: the preview only ever
@@ -473,11 +547,10 @@ async function capture() {
 async function scanFiles(files) {
   for (const file of files) {
     try {
-      const bitmap = await createImageBitmap(file);
-      const canvas = document.createElement("canvas");
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      canvas.getContext("2d").drawImage(bitmap, 0, 0);
+      // a phone camera app writes 12 to 50 megapixels; more than the pipeline
+      // needs for a page, and enough to run a browser tab out of memory
+      const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+      const canvas = bitmapCanvas(bitmap);
       bitmap.close();
       // eslint-disable-next-line no-await-in-loop
       const chosen = await confirmRegion(canvas);
@@ -610,32 +683,130 @@ function loop() {
 
 /* -- camera -------------------------------------------------------------- */
 
+/** What the camera behind a track can actually do. */
+function trackAbilities(track) {
+  try {
+    return (track && track.getCapabilities) ? track.getCapabilities() : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+/**
+ * Ask the stream for every pixel the camera has.
+ *
+ * Only worth doing when stills are unavailable: a 4K preview costs battery
+ * and frame rate, and with `ImageCapture` the shutter goes to the sensor
+ * anyway.  Without it the stream is all there is, so it gets the maximum.
+ */
+async function raiseStreamResolution() {
+  if (!state.track || !state.track.applyConstraints) return;
+  const able = trackAbilities(state.track);
+  const width = able.width && able.width.max;
+  const height = able.height && able.height.max;
+  if (!width || !height) return;
+  const before = ui.video.videoWidth;
+  try {
+    await state.track.applyConstraints({
+      width: { ideal: Math.min(width, CAPTURE_SIDE) },
+      height: { ideal: Math.min(height, CAPTURE_SIDE) },
+      resizeMode: "none",
+    });
+  } catch (error) {
+    return;                       // the camera keeps what it has
+  }
+  // the element reports the new size a few frames later, and a shot taken in
+  // between would still be the small one
+  for (let wait = 0; wait < 12 && ui.video.videoWidth === before; wait += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((done) => setTimeout(done, 50));
+  }
+}
+
+/** Keep the paper in focus: a document is close, and fixed focus misses it. */
+async function keepFocusing(track) {
+  const able = trackAbilities(track);
+  const modes = able.focusMode || [];
+  if (!modes.includes("continuous")) return;
+  try {
+    await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+  } catch (error) { /* not every camera lets this be set */ }
+}
+
 async function startCamera() {
   if (state.stream) state.stream.getTracks().forEach((track) => track.stop());
   ui.permission.hidden = true;
+  state.photo = null;
+  // ask high: the browser clamps to what the camera has, and a stream that
+  // came back at 640x480 because nothing was asked for cannot be undone
+  const wanted = (side) => ({
+    video: {
+      facingMode: { ideal: state.facing },
+      width: { ideal: side },
+      height: { ideal: side },
+      resizeMode: "none",
+    },
+    audio: false,
+  });
+  const stills = typeof window.ImageCapture === "function";
   try {
-    state.stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: state.facing },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-      },
-      audio: false,
-    });
+    state.stream = await navigator.mediaDevices.getUserMedia(
+      wanted(stills ? PREVIEW_SIDE : CAPTURE_SIDE));
   } catch (error) {
-    showCameraProblem(error);
-    return false;
+    try {
+      state.stream = await navigator.mediaDevices.getUserMedia(
+        { video: { facingMode: { ideal: state.facing } }, audio: false });
+    } catch (again) {
+      showCameraProblem(error);
+      return false;
+    }
   }
   ui.video.srcObject = state.stream;
   await ui.video.play().catch(() => {});
   state.track = state.stream.getVideoTracks()[0];
+  await keepFocusing(state.track);
+  if (stills) {
+    try {
+      state.photo = new window.ImageCapture(state.track);
+    } catch (error) {
+      state.photo = null;
+    }
+  }
+  if (!state.photo) await raiseStreamResolution();
 
-  const capabilities = state.track.getCapabilities ? state.track.getCapabilities() : {};
+  const capabilities = trackAbilities(state.track);
   ui.torch.hidden = !capabilities.torch;
   ui.flip.hidden = !(navigator.mediaDevices.enumerateDevices);
   ui.splash.hidden = true;
   setStatus("문서를 찾는 중…");
+  reportCameraQuality();
   return true;
+}
+
+/**
+ * Say what the shot will be worth, once, when the camera comes up.
+ *
+ * "The photo is blurred" is usually not the lens but the number of pixels the
+ * page is drawn on, and that is worth saying out loud, with the way out: the
+ * phone's own camera app takes a far bigger picture than any web page can ask
+ * for, and its files can be brought in with 사진 불러오기.
+ */
+function reportCameraQuality() {
+  const settings = state.track && state.track.getSettings ? state.track.getSettings() : {};
+  const able = trackAbilities(state.track);
+  const best = state.photo && able.width && able.width.max
+    ? [able.width.max, able.height.max] : null;
+  const width = (best ? best[0] : settings.width) || ui.video.videoWidth || 0;
+  const height = (best ? best[1] : settings.height) || ui.video.videoHeight || 0;
+  if (!width || !height) return;
+  state.sourceSize = [width, height];
+  const megapixels = (width * height) / 1e6;
+  if (width * height >= LOW_PIXELS) {
+    toast(`카메라 ${width}×${height} (${megapixels.toFixed(1)}MP)`);
+    return;
+  }
+  toast(`카메라가 ${width}×${height}까지만 지원합니다. 작은 글씨가 흐리면 폰 카메라 앱으로 `
+        + "찍고 '사진 불러오기'로 가져오세요.", 5200);
 }
 
 function showCameraProblem(error) {

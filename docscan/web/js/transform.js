@@ -226,10 +226,13 @@ export function outputSize(ordered, width, height, aspect = "auto", maxSide = 0)
  * Rectify `quad` of `source` into a straight rectangle.
  * Returns a new Mat which the caller owns.
  */
-export function fourPointTransform(source, quad, { aspect = "auto", margin = 0, size = null } = {}) {
+export function fourPointTransform(source, quad,
+                                   { aspect = "auto", margin = 0, size = null,
+                                     maxSide = 0 } = {}) {
   const cv = window.cv;
   const ordered = orderCorners(expandQuad(quad, margin));
-  const [width, height] = size || outputSize(ordered, source.cols, source.rows, aspect);
+  const [width, height] = size
+    || outputSize(ordered, source.cols, source.rows, aspect, maxSide);
   const destination = new cv.Mat();
   return withMats((keep) => {
     const sourceTri = keep(cv.matFromArray(4, 1, cv.CV_32FC2, [
