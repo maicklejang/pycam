@@ -60,11 +60,31 @@
 
   <div class="extras">
     <button id="pick" class="chip">사진 불러오기</button>
+    <button id="manual" class="chip" aria-pressed="true" title="촬영한 뒤 문서 영역을 직접 확인합니다">영역 확인</button>
     <button id="torch" class="chip" hidden>플래시</button>
     <button id="flip" class="chip" hidden>카메라 전환</button>
     <button id="save" class="chip chip--primary" disabled>PDF 저장</button>
   </div>
 </footer>
+
+<section id="editor" class="editor" hidden aria-label="문서 영역 선택">
+  <header class="editor__head">
+    <span id="editor-hint" class="editor__hint"></span>
+  </header>
+  <div class="editor__stage">
+    <canvas id="editor-canvas" class="editor__canvas"></canvas>
+  </div>
+  <div class="editor__tools">
+    <button id="editor-auto" class="chip">자동 감지</button>
+    <button id="editor-all" class="chip">전체</button>
+    <button id="editor-straight" class="chip">직선으로</button>
+    <button id="editor-flatten" class="chip" aria-pressed="true" title="휜 페이지를 펴서 저장합니다">평탄화</button>
+  </div>
+  <footer class="editor__actions">
+    <button id="editor-cancel" class="chip">취소</button>
+    <button id="editor-apply" class="chip chip--primary">확인</button>
+  </footer>
+</section>
 
 <dialog id="sheet" class="sheet">
   <header class="sheet__bar">

@@ -6,7 +6,9 @@
  */
 
 import { loadOpenCV } from "./cv.js";
+import { CurvedQuad, flatten, refineEdges, straightenTextLines } from "./curve.js";
 import { findDocument, touchesBorder } from "./detect.js";
+import { openEditor } from "./editor.js";
 import { MODE_DESCRIPTIONS, MODE_LABELS, MODES, enhance } from "./enhance.js";
 import { matFromSource, matToCanvas } from "./mat.js";
 import { fourPointTransform } from "./transform.js";
@@ -38,6 +40,7 @@ const ui = {
   gallery: document.getElementById("gallery"),
   pageCount: document.getElementById("page-count"),
   pick: document.getElementById("pick"),
+  manual: document.getElementById("manual"),
   file: document.getElementById("file"),
   torch: document.getElementById("torch"),
   flip: document.getElementById("flip"),
@@ -60,6 +63,10 @@ const state = {
   facing: "environment",
   mode: localStorage.getItem("docscan.mode") || "color",
   auto: localStorage.getItem("docscan.auto") === "1",
+  // checking the region by hand after every shot is the default: the detector
+  // is good, but it is the user who knows what the page is
+  manual: localStorage.getItem("docscan.manual") !== "0",
+  flatten: localStorage.getItem("docscan.flatten") !== "0",
   detection: null,
   smoothed: null,
   previousQuad: null,
@@ -285,26 +292,68 @@ async function exportImages() {
 
 /* -- scanning ------------------------------------------------------------ */
 
-/** Run the full pipeline on a source (video frame, image) and store the page. */
-async function scanSource(source, { detection = null } = {}) {
-  const cv = state.cv;
+/**
+ * Run the full pipeline on a source (video frame, image) and store the page.
+ *
+ * `outline` is what the user approved in the editor; without one the page is
+ * detected, and with `flattenPage` its border is followed so a curled sheet
+ * can be flattened instead of merely straightened.
+ */
+async function scanSource(source, { outline = null, flattenPage = state.flatten } = {}) {
   const image = matFromSource(source);
-  let rectified = null;
-  let finished = null;
+  const owned = [];
   try {
-    const found = detection || findDocument(image, {});
-    rectified = found
-      ? fourPointTransform(image, found.quad, { aspect: "auto", margin: MARGIN })
-      : image.clone();
-    finished = enhance(rectified, state.mode);
+    let used = outline;
+    if (!used) {
+      const found = findDocument(image, {});
+      if (found) {
+        used = flattenPage ? refineEdges(image, found.quad)
+          : CurvedQuad.fromQuad(found.quad);
+      }
+    }
+
+    let page;
+    if (!used) {
+      page = image.clone();
+    } else if (used.isStraight) {
+      page = fourPointTransform(image, used.corners, { aspect: "auto", margin: MARGIN });
+    } else {
+      page = flatten(image, used, { aspect: "auto" });
+    }
+    owned.push(page);
+
+    if (used && flattenPage) {
+      // the border only tells so much: in the middle of a curled page the text
+      // lines are the only evidence of what is left of the bend
+      const straightened = straightenTextLines(page);
+      owned.push(straightened);
+      page = straightened;
+    }
+
+    const finished = enhance(page, state.mode);
+    owned.push(finished);
     const canvas = canvasFromMat(finished);
     await addPage(canvas, state.mode);
-    return { cropped: Boolean(found), width: canvas.width, height: canvas.height };
+    return {
+      cropped: Boolean(used),
+      flattened: Boolean(used && !used.isStraight),
+      width: canvas.width,
+      height: canvas.height,
+    };
   } finally {
     image.delete();
-    if (rectified) rectified.delete();
-    if (finished) finished.delete();
+    owned.forEach((mat) => { if (mat && !mat.isDeleted()) mat.delete(); });
   }
+}
+
+/** Let the user confirm the region; resolves to the scan options or null. */
+async function confirmRegion(canvas) {
+  if (!state.manual) return { outline: null, flattenPage: state.flatten };
+  const chosen = await openEditor(canvas, { flatten: state.flatten });
+  if (!chosen) return null;
+  state.flatten = chosen.flatten;
+  localStorage.setItem("docscan.flatten", chosen.flatten ? "1" : "0");
+  return { outline: chosen.outline, flattenPage: chosen.flatten };
 }
 
 function videoFrameCanvas() {
@@ -322,13 +371,21 @@ async function capture() {
   flash();
   try {
     const frame = videoFrameCanvas();
-    // re-detect on the full frame: the preview works on a downscaled copy
-    const result = await scanSource(frame);
     state.lastCapture = performance.now();
     state.stableCount = 0;
+    // the region is confirmed on the full frame: the preview only ever
+    // detects on a downscaled copy
+    const chosen = await confirmRegion(frame);
+    if (!chosen) {
+      toast("취소했습니다");
+      return;
+    }
+    const result = await scanSource(frame, chosen);
+    state.lastCapture = performance.now();
     toast(result.cropped
       ? `${state.pages.length}번째 페이지 (${result.width}×${result.height})`
-      : `문서를 찾지 못해 전체 화면을 저장했습니다`);
+        + (result.flattened ? " · 평탄화" : "")
+      : "문서를 찾지 못해 전체 화면을 저장했습니다");
   } catch (error) {
     toast("촬영 실패: " + error.message, 3000);
   } finally {
@@ -347,8 +404,13 @@ async function scanFiles(files) {
       canvas.getContext("2d").drawImage(bitmap, 0, 0);
       bitmap.close();
       // eslint-disable-next-line no-await-in-loop
-      const result = await scanSource(canvas);
-      toast(result.cropped ? `${file.name}: ${result.width}×${result.height}`
+      const chosen = await confirmRegion(canvas);
+      if (!chosen) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const result = await scanSource(canvas, chosen);
+      toast(result.cropped
+        ? `${file.name}: ${result.width}×${result.height}`
+          + (result.flattened ? " · 평탄화" : "")
         : `${file.name}: 문서를 찾지 못했습니다`);
     } catch (error) {
       toast(`${file.name}: 열 수 없습니다`, 3000);
@@ -548,6 +610,14 @@ function wireEvents() {
     toast(state.auto ? "자동 촬영: 문서를 가만히 들고 계세요" : "자동 촬영 끔");
   });
   ui.auto.setAttribute("aria-pressed", String(state.auto));
+
+  ui.manual.addEventListener("click", () => {
+    state.manual = !state.manual;
+    localStorage.setItem("docscan.manual", state.manual ? "1" : "0");
+    ui.manual.setAttribute("aria-pressed", String(state.manual));
+    toast(state.manual ? "촬영 후 영역을 확인합니다" : "자동 영역으로 바로 저장합니다");
+  });
+  ui.manual.setAttribute("aria-pressed", String(state.manual));
 
   ui.pick.addEventListener("click", () => ui.file.click());
   ui.permissionPick.addEventListener("click", () => ui.file.click());

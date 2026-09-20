@@ -15,6 +15,7 @@ import numpy as np
 
 import cv2
 
+from docscan.curve import CurvedQuad, flatten, refine_edges, straighten_text_lines
 from docscan.detect import Detection, find_document
 from docscan.enhance import MODES, enhance
 from docscan.transform import four_point_transform, rotate_image
@@ -31,6 +32,7 @@ class ScanOptions:
     sharpen: Optional[float] = None
     rotate: int = 0
     crop: bool = True
+    flatten: bool = True
     min_area_ratio: float = 0.08
     working_size: int = 720
     max_side: Optional[int] = None
@@ -56,6 +58,8 @@ class ScanResult:
     detection: Optional[Detection] = None
     cropped: bool = False
     source_shape: tuple = field(default_factory=tuple)
+    outline: Optional[CurvedQuad] = None
+    flattened: bool = False
 
     @property
     def quad(self):
@@ -80,31 +84,49 @@ def _limit_resolution(image, max_side):
                       interpolation=cv2.INTER_AREA)
 
 
-def scan_image(image, options=None, detection=None):
+def scan_image(image, options=None, detection=None, outline=None):
     """Run the full pipeline on a photo and return the finished page.
 
     ``detection`` can be passed in when the outline is already known (the live
     camera preview detects on the small preview frame and reuses the result).
-    When no page outline is found the photo is processed without cropping, so
-    the caller always gets a usable result.
+    ``outline`` is a :class:`~docscan.curve.CurvedQuad` chosen by hand - the web
+    app hands over what the user dragged - and takes precedence over anything
+    the detector found.  When no page outline is found the photo is processed
+    without cropping, so the caller always gets a usable result.
     """
     options = (options or ScanOptions()).validate()
     if image is None or not getattr(image, "size", 0):
         raise ValueError("empty input image")
 
-    if detection is None and options.crop:
+    if detection is None and outline is None and options.crop:
         detection = find_document(image, min_area_ratio=options.min_area_ratio,
                                   working_size=options.working_size)
 
     cropped = False
+    flattened = False
     page = image
-    if options.crop and detection is not None:
-        page = four_point_transform(image, detection.quad, aspect=options.aspect,
-                                    margin=options.margin)
+    if outline is None and options.crop and detection is not None:
+        outline = CurvedQuad.from_quad(detection.quad)
+        if options.flatten:
+            # follow the real page border, which bends when the sheet is curled
+            outline = refine_edges(image, detection.quad)
+    if outline is not None and options.crop:
+        if outline.is_straight:
+            page = four_point_transform(image, outline.corners, aspect=options.aspect,
+                                        margin=options.margin)
+        else:
+            page = flatten(image, outline, aspect=options.aspect, margin=options.margin)
+            flattened = True
         cropped = True
+        if options.flatten:
+            # the border only tells so much: in the middle of a curled page the
+            # text lines are the only evidence of what is left of the bend
+            straightened = straighten_text_lines(page)
+            flattened = flattened or straightened is not page
+            page = straightened
 
     page = _limit_resolution(page, options.max_side)
     page = enhance(page, mode=options.mode, shadow=options.shadow, sharpen=options.sharpen)
     page = rotate_image(page, options.rotate)
     return ScanResult(image=page, detection=detection, cropped=cropped,
-                      source_shape=image.shape[:2])
+                      source_shape=image.shape[:2], outline=outline, flattened=flattened)

@@ -4,7 +4,7 @@
  * cached as well - after the first visit the app starts without any network.
  */
 
-const CACHE = "docscan-v1";
+const CACHE = "docscan-v2";
 
 const SHELL = [
   "./",
@@ -12,8 +12,10 @@ const SHELL = [
   "./app.css",
   "./manifest.webmanifest",
   "./js/app.js",
+  "./js/curve.js",
   "./js/cv.js",
   "./js/detect.js",
+  "./js/editor.js",
   "./js/enhance.js",
   "./js/mat.js",
   "./js/pdf.js",

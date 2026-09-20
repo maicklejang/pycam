@@ -21,10 +21,12 @@ import cv2
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                 os.pardir, os.pardir, os.pardir)))
 
+from docscan.curve import (flatten, refine_edges, straighten_text_lines,  # noqa: E402
+                           text_line_field)
 from docscan.detect import find_document  # noqa: E402  (needs the path above)
 from docscan.enhance import MODES  # noqa: E402  (needs the path above)
 from docscan.scanner import ScanOptions, scan_image  # noqa: E402  (needs the path above)
-from docscan.tests.synthetic import photograph  # noqa: E402  (needs the path above)
+from docscan.tests.synthetic import photograph, render_curved_photo  # noqa: E402
 from docscan.transform import order_corners  # noqa: E402  (needs the path above)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -84,11 +86,34 @@ def main():
         cv2.imwrite(os.path.join(FIXTURES, filename), result.image)
         modes[mode] = {"file": filename, "width": result.size[0], "height": result.size[1]}
 
+    # a page curled around a cylinder, for the flattening tests
+    curved_image, _ = render_curved_photo(arc=0.9)
+    cv2.imwrite(os.path.join(FIXTURES, "curved.jpg"), curved_image,
+                [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+    stored = cv2.imread(os.path.join(FIXTURES, "curved.jpg"))
+    detection = find_document(stored)
+    outline = refine_edges(stored, detection.quad)
+    flattened = flatten(stored, outline, aspect="auto")
+    cv2.imwrite(os.path.join(FIXTURES, "python_boundary.png"), flattened)
+    straightened = straighten_text_lines(flattened)
+    cv2.imwrite(os.path.join(FIXTURES, "python_flattened.png"), straightened)
+    curved = {
+        "name": "curved.jpg",
+        "corners": outline.corners.tolist(),
+        "midpoints": outline.midpoints.tolist(),
+        "curvature": [round(outline.edge_curvature(index), 5) for index in range(4)],
+        "boundary": {"file": "python_boundary.png"},
+        "flattened": {"file": "python_flattened.png",
+                      "width": straightened.shape[1], "height": straightened.shape[0]},
+        "text_shift": round(float(np.max(np.abs(text_line_field(flattened)))), 2),
+    }
+
     write_video(os.path.join(FIXTURES, "fakecam.y4m"),
                 cv2.imread(os.path.join(FIXTURES, cases[0]["name"])))
 
     with open(os.path.join(FIXTURES, "fixtures.json"), "w") as handle:
-        json.dump({"cases": cases, "modes": modes, "source": cases[0]["name"]}, handle, indent=1)
+        json.dump({"cases": cases, "modes": modes, "source": cases[0]["name"],
+                   "curved": curved}, handle, indent=1)
     print("wrote {} cases to {}".format(len(cases), FIXTURES))
 
 

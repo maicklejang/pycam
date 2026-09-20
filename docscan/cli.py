@@ -117,6 +117,9 @@ def _add_common_arguments(parser):
                             help="rotate the finished page clockwise")
     processing.add_argument("--no-crop", action="store_true",
                             help="keep the full photo instead of cropping to the page")
+    processing.add_argument("--no-flatten", action="store_true",
+                            help="skip the curvature correction and only straighten the "
+                                 "perspective (a curled page then keeps its bent lines)")
     processing.add_argument("--min-area", type=float, default=0.08, metavar="RATIO",
                             help="smallest page area relative to the photo")
     processing.add_argument("--max-side", type=int, default=None,
@@ -129,8 +132,8 @@ def _add_common_arguments(parser):
 def scan_options_from_args(args):
     return ScanOptions(mode=args.mode, aspect=args.aspect, margin=args.margin,
                        shadow=args.shadow, sharpen=args.sharpen, rotate=args.rotate,
-                       crop=not args.no_crop, min_area_ratio=args.min_area,
-                       max_side=args.max_side).validate()
+                       crop=not args.no_crop, flatten=not args.no_flatten,
+                       min_area_ratio=args.min_area, max_side=args.max_side).validate()
 
 
 def camera_options_from_args(args):
@@ -239,9 +242,9 @@ def command_scan(args, report):
             report.warn("{}: no page outline found, keeping the full photo".format(
                 describe_path(path)))
         else:
-            report.detail("{}: {} ({:.0%} of the photo) -> {}x{}".format(
+            report.detail("{}: {} ({:.0%} of the photo) -> {}x{}{}".format(
                 describe_path(path), result.detection.method, result.detection.area_ratio,
-                *result.size))
+                *result.size, ", flattened" if result.flattened else ""))
         pages.append(result)
         stems.append(path.stem)
 

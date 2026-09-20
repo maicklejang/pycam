@@ -17,6 +17,10 @@
 - **정확한 비율 복원** — 비스듬히 찍은 사각형의 원근 왜곡에서 카메라 초점거리를
   역산해 **원래 종이의 가로:세로 비율**을 복원합니다(A4를 45도로 찍어도 A4 비율로
   펴집니다). `--aspect a4`처럼 용지를 직접 지정할 수도 있습니다.
+- **휜 문서 평탄화** — 책이나 둥글게 말린 종이처럼 **변이 휘어 있는 페이지**도
+  폅니다. 네 변을 밝기 경계를 따라 곡선(베지에)으로 다시 찾아 쿤스 패치로 펴고,
+  남은 왜곡은 **글줄의 휘어짐을 측정해서** 바로잡습니다. 평평한 페이지는 원근
+  보정만 하고 그대로 둡니다(`--no-flatten`으로 끌 수 있습니다).
 - **조명·그림자 제거** — 책상 스탠드 때문에 한쪽이 어두운 사진도 균일한 흰
   배경으로 만듭니다.
 - **5가지 색 모드** — `color`, `magic`, `gray`, `bw`, `none`.
@@ -162,6 +166,7 @@ docscan modes   # 설명 보기
 | `--sharpen` | 추가 선명화 (예: `0.5`) |
 | `--rotate` | 결과를 90/180/270도 회전 |
 | `--no-crop` | 문서 검출·자르기를 하지 않고 보정만 수행 |
+| `--no-flatten` | 휜 페이지 평탄화를 끄고 원근 보정만 수행 |
 | `--min-area` | 문서로 인정할 최소 면적 비율 (기본 0.08) |
 | `--max-side` | 결과 이미지의 긴 변 최대 픽셀 수 |
 | `--dpi` | PDF에 기록할 해상도 (기본 300) |
@@ -176,6 +181,8 @@ docscan modes   # 설명 보기
   주황색으로 바뀝니다.
 - 한쪽만 밝은 조명도 괜찮습니다. 그림자 제거가 처리합니다.
 - 검출이 실패하면 `--no-crop`으로 보정만 하거나, `--min-area`를 낮춰 보세요.
+- 책처럼 **가운데가 볼록한 페이지**는 그대로 찍어도 됩니다. 평탄화가 처리합니다.
+  결과가 오히려 이상하면 `--no-flatten`을 쓰세요.
 
 ## 라이브러리로 쓰기
 
@@ -197,6 +204,9 @@ write_pdf("문서.pdf", [result.image], dpi=300, title="문서")
 | `docscan.find_document(image)` | 문서 외곽선(네 꼭짓점) 검출 |
 | `docscan.four_point_transform(image, quad)` | 원근 보정 |
 | `docscan.enhance(image, mode)` | 색·조명 보정 |
+| `docscan.curve.refine_edges(image, quad)` | 직선 네 변을 휜 변(`CurvedQuad`)으로 다시 찾기 |
+| `docscan.curve.flatten(image, curved)` | 휜 외곽선을 따라 페이지 펴기 |
+| `docscan.curve.straighten_text_lines(image)` | 글줄 휘어짐으로 남은 왜곡 보정 |
 | `docscan.scan_image(image, options)` | 위 과정을 한 번에 수행 |
 | `docscan.write_pdf(path, images)` | 여러 페이지를 PDF로 저장 |
 | `docscan.CameraScanner` | 실시간 촬영 세션 |
@@ -207,6 +217,7 @@ write_pdf("문서.pdf", [result.image], dpi=300, title="문서")
 | --- | --- |
 | `detect.py` | 문서 외곽선 검출과 후보 평가 |
 | `transform.py` | 꼭짓점 정렬, 비율 복원, 원근 보정 |
+| `curve.py` | 휜 변 검출(`CurvedQuad`), 평탄화, 글줄 기반 보정 |
 | `enhance.py` | 그림자 제거, 색 모드, 선명화 |
 | `pdf.py` | 의존성 없는 PDF 작성기 |
 | `camera.py` | 실시간 카메라 세션 |

@@ -139,28 +139,128 @@ async function main() {
       if (painted < 1000) throw new Error("the outline was not drawn (" + painted + " px)");
       return `${painted} overlay pixels`;
     });
-    await step("the shutter stores a page", async () => {
-      await page.click("#shutter");
-      await page.waitForFunction(
-        () => document.getElementById("page-count").textContent === "1",
-        null, { timeout: 30000 });
-      return await page.textContent("#toast");
+    const canvasBox = () => page.evaluate(() => {
+      const box = document.getElementById("editor-canvas").getBoundingClientRect();
+      return { left: box.left, top: box.top, width: box.width, height: box.height };
     });
-    await step("a second page can use another colour mode", async () => {
+    const sizeFromToast = async () => {
+      const toast = await page.textContent("#toast");
+      const match = /(\d+)\D+(\d+)\)/.exec(toast);
+      if (!match) throw new Error("no page size in the toast: " + toast);
+      return { width: Number(match[1]), height: Number(match[2]), toast };
+    };
+    const openShutter = async () => {
+      await page.click("#shutter");
+      await page.waitForSelector("#editor:not([hidden])", { timeout: 30000 });
+    };
+    const applyEditor = async (expected) => {
+      await page.click("#editor-apply");
+      await page.waitForFunction(
+        (count) => document.getElementById("page-count").textContent === String(count),
+        expected, { timeout: 30000 });
+      await page.waitForSelector("#editor", { state: "hidden" });
+    };
+
+    await step("the shutter opens the region editor with the page outlined", async () => {
+      await openShutter();
+      const outline = await page.evaluate(() => {
+        const canvas = document.getElementById("editor-canvas");
+        const { data } = canvas.getContext("2d")
+          .getImageData(0, 0, canvas.width, canvas.height);
+        let green = 0;
+        for (let index = 0; index < data.length; index += 4) {
+          if (data[index + 1] > 150 && data[index] < 120 && data[index + 2] < 140) {
+            green += 1;
+          }
+        }
+        return green;
+      });
+      if (outline < 500) throw new Error("no outline drawn (" + outline + " px)");
+      return `${outline} outline pixels`;
+    });
+
+    let draggedArea = 0;
+    await step("dragging a corner changes the region", async () => {
+      await page.click("#editor-all");      // corners sit on the photo corners now
+      const box = await canvasBox();
+      await page.mouse.move(box.left + 3, box.top + 3);
+      await page.mouse.down();
+      await page.mouse.move(box.left + box.width * 0.3, box.top + box.height * 0.3,
+                            { steps: 8 });
+      await page.mouse.up();
+      await applyEditor(1);
+      const size = await sizeFromToast();
+      draggedArea = size.width * size.height;
+      return `${size.width}x${size.height}`;
+    });
+
+    await step("the same shot without the drag gives a different page", async () => {
+      await openShutter();
+      await page.click("#editor-all");
+      await applyEditor(2);
+      const size = await sizeFromToast();
+      const area = size.width * size.height;
+      // not "smaller": cutting a corner off steepens the perspective, and the
+      // recovered rectangle can come out larger.  What matters is that the
+      // drag reached the pipeline at all.
+      if (Math.abs(area - draggedArea) < draggedArea * 0.1) {
+        throw new Error(`the drag changed nothing: ${area} vs ${draggedArea}`);
+      }
+      return `${size.width}x${size.height} against ${draggedArea} px^2 dragged`;
+    });
+
+    await step("bending an edge flattens the page", async () => {
+      await openShutter();
+      await page.click("#editor-all");
+      const box = await canvasBox();
+      // the top edge handle sits in the middle of the top border; pull it down
+      await page.mouse.move(box.left + box.width / 2, box.top + 3);
+      await page.mouse.down();
+      await page.mouse.move(box.left + box.width / 2, box.top + box.height * 0.12,
+                            { steps: 8 });
+      await page.mouse.up();
+      await applyEditor(3);
+      const { toast } = await sizeFromToast();
+      if (!toast.includes("평탄화")) throw new Error("not flattened: " + toast);
+      return toast;
+    });
+
+    await step("cancelling the editor keeps the page count", async () => {
+      await openShutter();
+      await page.click("#editor-cancel");
+      await page.waitForSelector("#editor", { state: "hidden" });
+      const count = await page.textContent("#page-count");
+      if (count !== "3") throw new Error("page count became " + count);
+      return "still 3 pages";
+    });
+
+    await step("a page can use another colour mode", async () => {
       const chips = await page.$$("#modes .chip");
       await chips[3].click();
+      await openShutter();
+      await applyEditor(4);
+      return "4 pages";
+    });
+
+    await step("the region check can be switched off", async () => {
+      await page.click("#manual");
       await page.click("#shutter");
       await page.waitForFunction(
-        () => document.getElementById("page-count").textContent === "2",
+        () => document.getElementById("page-count").textContent === "5",
         null, { timeout: 30000 });
-      return "2 pages";
+      if (await page.$("#editor:not([hidden])")) {
+        throw new Error("the editor opened although it was switched off");
+      }
+      await page.click("#manual");
+      return "captured without the editor";
     });
-    await step("the gallery lists both pages", async () => {
+
+    await step("the gallery lists every page", async () => {
       await page.click("#gallery");
       await page.waitForSelector(".thumb img");
       const labels = await page.$$eval(".thumb .thumb__index",
                                        (nodes) => nodes.map((node) => node.textContent));
-      if (labels.length !== 2) throw new Error("thumbnails: " + labels.length);
+      if (labels.length !== 5) throw new Error("thumbnails: " + labels.length);
       return labels.join(", ");
     });
     await step("a page can be rotated", async () => {
@@ -181,14 +281,14 @@ async function main() {
       const bytes = await readFile(target);
       const text = bytes.toString("latin1");
       if (!text.startsWith("%PDF")) throw new Error("not a PDF");
-      if (!/\/Count 2\b/.test(text)) throw new Error("wrong page count");
+      if (!/\/Count 5\b/.test(text)) throw new Error("wrong page count");
       return `${download.suggestedFilename()}, ${bytes.length} bytes`;
     });
     await step("pages come back after a reload", async () => {
       await page.click("#sheet-close");
       await page.reload();
       await page.waitForFunction(
-        () => document.getElementById("page-count").textContent === "2",
+        () => document.getElementById("page-count").textContent === "5",
         null, { timeout: 60000 });
       return "restored from IndexedDB";
     });

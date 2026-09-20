@@ -6,6 +6,10 @@
  */
 
 import { loadOpenCV } from "../js/cv.js";
+import {
+  CurvedQuad, controlFromMidpoint, flatten as flattenPage, midpointFromControl,
+  refineEdges, straightenTextLines, textLineField,
+} from "../js/curve.js";
 import { findDocument, touchesBorder, fullFrameQuad } from "../js/detect.js";
 import { enhance, MODES, MODE_LABELS } from "../js/enhance.js";
 import { matFromSource, matToCanvas, toGray } from "../js/mat.js";
@@ -220,6 +224,116 @@ export async function runAll(fixturesUrl = "./fixtures/") {
       }
       source.delete();
       return `max mean difference ${Math.max(...worst).toFixed(2)}/255`;
+    });
+  }
+
+  /* -- curved outlines and flattening ------------------------------------ */
+
+  await check("a straight CurvedQuad reports itself as straight", () => {
+    const quad = [[0, 0], [200, 0], [200, 100], [0, 100]];
+    const curved = CurvedQuad.fromQuad(quad);
+    assert(curved.isStraight, "a rectangle should be straight");
+    close(curved.curvature(), 0, 1e-9, "curvature");
+    const middles = curved.midpoints;
+    close(middles[0][0], 100, 1e-9, "top midpoint x");
+    close(middles[0][1], 0, 1e-9, "top midpoint y");
+  });
+
+  await check("midpoints and control points are inverse", () => {
+    const start = [0, 0];
+    const end = [20, 0];
+    const middle = [10, 7];
+    const control = controlFromMidpoint(start, end, middle);
+    const back = midpointFromControl(start, control, end);
+    close(back[0], middle[0], 1e-9, "x");
+    close(back[1], middle[1], 1e-9, "y");
+  });
+
+  await check("a dragged edge bulges outwards and is not straight", () => {
+    const quad = [[0, 0], [200, 0], [200, 100], [0, 100]];
+    const curved = CurvedQuad.fromMidpoints(quad, [[100, -20], [200, 50],
+                                                   [100, 100], [0, 50]]);
+    assert(!curved.isStraight, "a bent quad must not report as straight");
+    close(curved.edgeBulge(0), 20, 1e-6, "bulge");
+    close(curved.edgeCurvature(0), 0.1, 1e-6, "curvature");
+    close(curved.edgeBulge(2), 0, 1e-6, "the untouched edge");
+  });
+
+  if (fixtures && fixtures.curved) {
+    await check("refineEdges finds the same bend as python", async () => {
+      const image = await loadMat(fixturesUrl + fixtures.curved.name);
+      try {
+        const detection = findDocument(image, {});
+        assert(detection, "the curled page was not detected");
+        const curved = refineEdges(image, detection.quad);
+        const mine = [0, 1, 2, 3].map((index) => curved.edgeCurvature(index));
+        fixtures.curved.curvature.forEach((expected, index) => {
+          close(mine[index], expected, 0.004, `edge ${index}`);
+        });
+        assert(!curved.isStraight, "the curled page should not be straight");
+        return `bottom edge ${(mine[2] * 100).toFixed(1)}% of its length`;
+      } finally {
+        image.delete();
+      }
+    });
+
+    await check("flatten reproduces the python output", async () => {
+      const image = await loadMat(fixturesUrl + fixtures.curved.name);
+      const reference = await loadMat(fixturesUrl + fixtures.curved.boundary.file);
+      const detection = findDocument(image, {});
+      const curved = refineEdges(image, detection.quad);
+      const flat = flattenPage(image, curved, { aspect: "auto" });
+      const left = toGray(flat);
+      const right = toGray(reference);
+      const difference = new cv.Mat();
+      try {
+        assert(flat.cols === reference.cols && flat.rows === reference.rows,
+               `size ${flat.cols}x${flat.rows} != ${reference.cols}x${reference.rows}`);
+        cv.absdiff(left, right, difference);
+        const mad = cv.mean(difference)[0];
+        assert(mad < 1.0, `mean difference ${mad.toFixed(2)}`);
+        return `${flat.cols}x${flat.rows}, mean difference ${mad.toFixed(2)}/255`;
+      } finally {
+        [image, reference, flat, left, right, difference].forEach((mat) => mat.delete());
+      }
+    });
+
+    await check("the text line step straightens what the border leaves", async () => {
+      const image = await loadMat(fixturesUrl + fixtures.curved.name);
+      const reference = await loadMat(fixturesUrl + fixtures.curved.flattened.file);
+      const detection = findDocument(image, {});
+      const curved = refineEdges(image, detection.quad);
+      const flat = flattenPage(image, curved, { aspect: "auto" });
+      const field = textLineField(flat);
+      const straight = straightenTextLines(flat);
+      const left = toGray(straight);
+      const right = toGray(reference);
+      const difference = new cv.Mat();
+      try {
+        assert(field, "no text lines were found");
+        let largest = 0;
+        for (const value of field) largest = Math.max(largest, Math.abs(value));
+        close(largest, fixtures.curved.text_shift, 1.0, "largest shift");
+        cv.absdiff(left, right, difference);
+        const mad = cv.mean(difference)[0];
+        assert(mad < 4.0, `mean difference ${mad.toFixed(2)}`);
+        return `shift ${largest.toFixed(1)} px, mean difference ${mad.toFixed(2)}/255`;
+      } finally {
+        [image, reference, flat, straight, left, right, difference]
+          .forEach((mat) => mat.delete());
+      }
+    });
+
+    await check("a flat page is left alone by the flattening", async () => {
+      const image = await loadMat(fixturesUrl + fixtures.source);
+      try {
+        const detection = findDocument(image, {});
+        const curved = refineEdges(image, detection.quad);
+        assert(curved.isStraight,
+               `curvature ${curved.curvature().toFixed(4)} on a flat page`);
+      } finally {
+        image.delete();
+      }
     });
   }
 
