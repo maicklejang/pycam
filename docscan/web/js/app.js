@@ -7,9 +7,10 @@
 
 import { loadOpenCV } from "./cv.js";
 import { CurvedQuad, flatten, refineEdges, straightenTextLines } from "./curve.js";
-import { openViewer, refreshViewer, setupViewer } from "./viewer.js";
+import { closeViewer, openViewer, refreshViewer, setupViewer } from "./viewer.js";
+import { closeLayer, guardBack, openLayer } from "./nav.js";
 import { findDocument, touchesBorder } from "./detect.js";
-import { openEditor } from "./editor.js";
+import { closeEditor, openEditor } from "./editor.js";
 import { MODE_DESCRIPTIONS, MODE_LABELS, MODES, enhance } from "./enhance.js";
 import { matFromSource, matToCanvas } from "./mat.js";
 import { fourPointTransform } from "./transform.js";
@@ -68,6 +69,7 @@ const ui = {
     hint: document.getElementById("viewer-hint"),
     previous: document.getElementById("viewer-previous"),
     next: document.getElementById("viewer-next"),
+    edit: document.getElementById("viewer-edit"),
     rotate: document.getElementById("viewer-rotate"),
     save: document.getElementById("viewer-save"),
     remove: document.getElementById("viewer-remove"),
@@ -152,6 +154,19 @@ async function deliver(blob, filename) {
   return "downloaded";
 }
 
+/**
+ * Run `body` with a screen registered as open over the rest of the app, so
+ * that the back button closes it instead of leaving.
+ */
+async function withLayer(name, dismiss, body) {
+  openLayer(name, dismiss);
+  try {
+    return await body();
+  } finally {
+    closeLayer(name);
+  }
+}
+
 /* -- pages --------------------------------------------------------------- */
 
 function canvasFromMat(mat) {
@@ -164,21 +179,38 @@ function canvasToBlob(canvas, type, quality) {
   return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
 }
 
-async function addPage(canvas, mode) {
-  // bi-level pages stay lossless so that the PDF can embed them as 1 bit
-  const lossless = mode === "bw";
-  const blob = await canvasToBlob(canvas, lossless ? "image/png" : "image/jpeg", 0.92);
+async function thumbnailBlob(canvas) {
   const thumbnail = document.createElement("canvas");
   const scale = Math.min(1, 220 / Math.max(canvas.width, canvas.height));
   thumbnail.width = Math.max(1, Math.round(canvas.width * scale));
   thumbnail.height = Math.max(1, Math.round(canvas.height * scale));
   thumbnail.getContext("2d").drawImage(canvas, 0, 0, thumbnail.width, thumbnail.height);
-  const thumbBlob = await canvasToBlob(thumbnail, "image/jpeg", 0.7);
+  return canvasToBlob(thumbnail, "image/jpeg", 0.7);
+}
+
+/**
+ * Store a page, and keep what it was made from.
+ *
+ * The shot itself and the region it was cut with are kept alongside the
+ * finished page so that the region can be picked again later: a corner that
+ * landed inside the paper has thrown away pixels that only the original
+ * still has.  When storage refuses the extra weight the page is kept on its
+ * own, and a later edit works from the finished page instead.
+ */
+async function addPage(canvas, mode, { source = null, outline = null, flatten = false } = {}) {
+  // bi-level pages stay lossless so that the PDF can embed them as 1 bit
+  const lossless = mode === "bw";
+  const blob = await canvasToBlob(canvas, lossless ? "image/png" : "image/jpeg", 0.92);
+  const thumbBlob = await thumbnailBlob(canvas);
+  const sourceBlob = source ? await canvasToBlob(source, "image/jpeg", 0.85) : null;
 
   const page = {
     id: Date.now() + "-" + Math.random().toString(36).slice(2, 8),
     blob,
     thumbBlob,
+    sourceBlob,
+    outline: outline ? outline.asDict() : null,
+    flatten,
     width: canvas.width,
     height: canvas.height,
     mode,
@@ -186,9 +218,32 @@ async function addPage(canvas, mode) {
     order: state.pages.length,
   };
   state.pages.push(page);
-  await savePage(page).catch(() => { /* private mode: keep the page in memory */ });
+  await storePage(page);
   refreshPages();
   return page;
+}
+
+/** Store a page, dropping the original shot if that is what storage rejects. */
+async function storePage(page) {
+  try {
+    await savePage(page);
+    return;
+  } catch (error) {
+    if (!page.sourceBlob) return;   // private mode: keep the page in memory
+  }
+  page.sourceBlob = null;
+  await savePage(page).catch(() => {});
+  toast("저장 공간이 부족해 원본은 보관하지 못했습니다", 3200);
+}
+
+/** Put a freshly scanned image into a page that already exists. */
+async function updatePage(page, canvas) {
+  const lossless = page.mode === "bw";
+  page.blob = await canvasToBlob(canvas, lossless ? "image/png" : "image/jpeg", 0.92);
+  page.thumbBlob = await thumbnailBlob(canvas);
+  page.width = canvas.width;
+  page.height = canvas.height;
+  await storePage(page);
 }
 
 /** Re-encode a stored page, turned by 90 degrees clockwise. */
@@ -273,6 +328,12 @@ async function movePage(from, to) {
   refreshViewer(state.pages);
 }
 
+/** Show a page full screen, with the back button closing it again. */
+function openPageViewer(index) {
+  openLayer("viewer", closeViewer);
+  openViewer(state.pages, index);
+}
+
 function renderThumbs(highlight = null) {
   ui.thumbs.innerHTML = "";
   state.pages.forEach((page, index) => {
@@ -282,7 +343,7 @@ function renderThumbs(highlight = null) {
     image.alt = `${index + 1}번째 페이지`;
     image.src = URL.createObjectURL(page.thumbBlob || page.blob);
     image.addEventListener("load", () => URL.revokeObjectURL(image.src), { once: true });
-    image.addEventListener("click", () => openViewer(state.pages, index));
+    image.addEventListener("click", () => openPageViewer(index));
     const badge = document.createElement("span");
     badge.className = "thumb__index";
     badge.textContent = `${index + 1} · ${MODE_LABELS[page.mode] || page.mode}`;
@@ -305,6 +366,14 @@ function renderThumbs(highlight = null) {
 
     const tools = document.createElement("div");
     tools.className = "thumb__tools";
+    const open = document.createElement("button");
+    open.textContent = "보기";
+    open.title = "크게 보기 (확대·축소)";
+    open.addEventListener("click", () => openPageViewer(index));
+    const edit = document.createElement("button");
+    edit.textContent = "편집";
+    edit.title = "문서 영역을 다시 잡습니다";
+    edit.addEventListener("click", () => editPage(page));
     const turn = document.createElement("button");
     turn.textContent = "회전";
     turn.addEventListener("click", async () => {
@@ -313,13 +382,10 @@ function renderThumbs(highlight = null) {
       renderThumbs();
       refreshViewer(state.pages);
     });
-    const single = document.createElement("button");
-    single.textContent = "저장";
-    single.addEventListener("click", () => savePageFile(page));
     const drop = document.createElement("button");
     drop.textContent = "삭제";
     drop.addEventListener("click", () => dropPage(page));
-    tools.append(turn, single, drop);
+    tools.append(open, edit, turn, drop);
     item.append(image, badge, order, tools);
     ui.thumbs.appendChild(item);
   });
@@ -377,7 +443,7 @@ async function exportImages() {
  * detected, and with `flattenPage` its border is followed so a curled sheet
  * can be flattened instead of merely straightened.
  */
-async function scanSource(source, { outline = null, flattenPage = state.flatten } = {}) {
+function renderScan(source, { outline = null, flattenPage = state.flatten, mode = state.mode } = {}) {
   const image = matFromSource(source);
   const owned = [];
   try {
@@ -416,11 +482,12 @@ async function scanSource(source, { outline = null, flattenPage = state.flatten 
       page = straightened;
     }
 
-    const finished = enhance(page, state.mode);
+    const finished = enhance(page, mode);
     owned.push(finished);
     const canvas = canvasFromMat(finished);
-    await addPage(canvas, state.mode);
     return {
+      canvas,
+      used,
       cropped: Boolean(used),
       flattened: Boolean(used && !used.isStraight),
       width: canvas.width,
@@ -432,10 +499,68 @@ async function scanSource(source, { outline = null, flattenPage = state.flatten 
   }
 }
 
+/** Scan a fresh shot and add it to the stack. */
+async function scanSource(source, { outline = null, flattenPage = state.flatten } = {}) {
+  const result = renderScan(source, { outline, flattenPage, mode: state.mode });
+  await addPage(result.canvas, state.mode, {
+    source,
+    outline: result.used ? result.used.withoutProfiles() : null,
+    flatten: flattenPage,
+  });
+  return result;
+}
+
+/**
+ * Pick the region of a page that has already been scanned, and scan it again.
+ *
+ * The editor opens on the shot the page was made from, with the region it was
+ * cut with already in place, so a corner that was a little off can be nudged -
+ * or 자동 감지 can be asked for a fresh look.  Older pages, and pages whose
+ * original could not be stored, are edited from the finished page itself: the
+ * region can still be trimmed, only nothing outside it can come back.
+ */
+async function editPage(page, { reopen = false } = {}) {
+  if (state.busy) return;
+  state.busy = true;
+  try {
+    const original = Boolean(page.sourceBlob);
+    const bitmap = await createImageBitmap(page.sourceBlob || page.blob);
+    const canvas = bitmapCanvas(bitmap);
+    bitmap.close();
+    const chosen = await withLayer("editor", closeEditor, () => openEditor(canvas, {
+      flatten: page.flatten !== false,
+      start: original ? page.outline : null,
+    }));
+    if (!chosen) {
+      if (reopen) openPageViewer(state.pages.indexOf(page));
+      return;
+    }
+    const result = renderScan(canvas, {
+      outline: chosen.outline,
+      flattenPage: chosen.flatten,
+      mode: page.mode,
+    });
+    page.flatten = chosen.flatten;
+    if (original && result.used) page.outline = result.used.withoutProfiles().asDict();
+    await updatePage(page, result.canvas);
+    renderThumbs(page.id);
+    refreshViewer(state.pages);
+    toast(`${state.pages.indexOf(page) + 1}번째 페이지를 다시 잡았습니다 `
+          + `(${result.width}×${result.height})`);
+    // an edit that started from the full screen view goes back to it
+    if (reopen) openPageViewer(state.pages.indexOf(page));
+  } catch (error) {
+    toast("편집 실패: " + error.message, 3000);
+  } finally {
+    state.busy = false;
+  }
+}
+
 /** Let the user confirm the region; resolves to the scan options or null. */
 async function confirmRegion(canvas) {
   if (!state.manual) return { outline: null, flattenPage: state.flatten };
-  const chosen = await openEditor(canvas, { flatten: state.flatten });
+  const chosen = await withLayer("editor", closeEditor,
+                                 () => openEditor(canvas, { flatten: state.flatten }));
   if (!chosen) return null;
   state.flatten = chosen.flatten;
   localStorage.setItem("docscan.flatten", chosen.flatten ? "1" : "0");
@@ -902,13 +1027,17 @@ function wireEvents() {
   ui.gallery.addEventListener("click", () => {
     renderThumbs();
     ui.sheet.showModal();
+    openLayer("sheet", () => ui.sheet.close());
   });
   ui.sheetClose.addEventListener("click", () => ui.sheet.close());
+  ui.sheet.addEventListener("close", () => closeLayer("sheet"));
 
   setupViewer(ui.viewer, {
     rotate: (page) => rotatePage(page).then(() => renderThumbs()),
     save: savePageFile,
     remove: (page) => dropPage(page),
+    edit: (page) => editPage(page, { reopen: true }),
+    onClose: () => closeLayer("viewer"),
   });
 
   window.addEventListener("beforeinstallprompt", (event) => {
@@ -929,6 +1058,9 @@ async function main() {
   buildModeChips();
   wireEvents();
   refreshPages();
+  // the back button should step out of whatever is open, and from the camera
+  // screen it should take two presses to leave rather than one by accident
+  guardBack(() => toast("한 번 더 누르면 앱을 닫습니다", 2400));
 
   try {
     state.pages = await loadPages();

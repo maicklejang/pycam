@@ -151,7 +151,7 @@ async function main() {
     };
     const openShutter = async () => {
       await page.click("#shutter");
-      await page.waitForSelector("#editor:not([hidden])", { timeout: 30000 });
+      await page.waitForSelector("#editor[open]", { timeout: 30000 });
     };
     const applyEditor = async (expected) => {
       await page.click("#editor-apply");
@@ -268,7 +268,7 @@ async function main() {
       await page.waitForFunction(
         () => document.getElementById("page-count").textContent === "5",
         null, { timeout: 30000 });
-      if (await page.$("#editor:not([hidden])")) {
+      if (await page.$("#editor[open]")) {
         throw new Error("the editor opened although it was switched off");
       }
       await page.click("#manual");
@@ -345,12 +345,64 @@ async function main() {
     });
     await step("a page can be rotated", async () => {
       const before = await page.$eval(".thumb img", (node) => node.naturalWidth);
-      await page.click(".thumb .thumb__tools button");
+      await page.click(".thumb .thumb__tools button:nth-child(3)");   // 회전
       await page.waitForTimeout(600);
       const after = await page.$eval(".thumb img", (node) => node.naturalWidth);
       if (before === after) throw new Error("the thumbnail did not change shape");
       return `${before} -> ${after} px wide`;
     });
+    await step("a page's region can be picked again", async () => {
+      const sizes = () => page.evaluate(async () => {
+        const store = await import("./js/store.js");
+        return (await store.loadPages()).map((entry) => `${entry.width}x${entry.height}`);
+      });
+      const before = await sizes();
+      await page.click(".thumb .thumb__tools button:nth-child(2)");    // 편집
+      await page.waitForSelector("#editor[open]", { timeout: 60000 });
+      const hint = await page.$eval("#editor-hint", (node) => node.textContent);
+      if (!hint.includes("자동 감지")) throw new Error("editor hint reads " + hint);
+      // the shot it was scanned from is what the editor works on, so the whole
+      // frame is back, not only the page that was cut out of it
+      const shot = await page.$eval("#editor-size", (node) => node.textContent);
+      const frame = shot.split("×").map(Number);
+      const page1 = before[0].split("x").map(Number);
+      if (!(frame[0] > page1[0])) throw new Error(`${shot} is not the original shot`);
+      await page.click("#editor-all");
+      await page.click("#editor-apply");
+      await page.waitForSelector("#editor", { state: "hidden", timeout: 60000 });
+      await page.waitForFunction(
+        () => document.getElementById("toast").textContent.includes("다시 잡았습니다"),
+        null, { timeout: 60000 });
+      const after = await sizes();
+      if (after.length !== before.length) throw new Error("the page count changed");
+      if (after[0] === before[0]) throw new Error("the page came back unchanged: " + after[0]);
+      if (after.slice(1).join() !== before.slice(1).join()) {
+        throw new Error("another page changed: " + after.join(", "));
+      }
+      return `${shot} shot, page ${before[0]} -> ${after[0]}, still ${after.length} pages`;
+    });
+
+    await step("the back button steps out instead of leaving", async () => {
+      await page.click(".thumb img");
+      await page.waitForSelector("#viewer[open]");
+      await page.goBack();
+      await page.waitForSelector("#viewer[open]", { state: "detached", timeout: 30000 });
+      const galleryOpen = await page.$eval("#sheet", (node) => node.open);
+      if (!galleryOpen) throw new Error("the gallery closed along with the viewer");
+      await page.goBack();
+      await page.waitForFunction(() => !document.getElementById("sheet").open,
+                                 null, { timeout: 30000 });
+      // and from the camera screen the first press only warns
+      await page.goBack();
+      const toast = await page.$eval("#toast", (node) => node.textContent);
+      if (!toast.includes("한 번 더")) throw new Error("no warning, toast reads " + toast);
+      const alive = await page.$eval("#shutter", (node) => Boolean(node));
+      if (!alive) throw new Error("the app went away");
+      await page.click("#gallery");
+      await page.waitForSelector(".thumb img");
+      return "viewer -> gallery -> camera, then a warning";
+    });
+
     await step("the pages export as a PDF", async () => {
       const [download] = await Promise.all([
         page.waitForEvent("download", { timeout: 60000 }),

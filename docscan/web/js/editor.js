@@ -97,19 +97,32 @@ function detectOutline(photo) {
   }
 }
 
+/** Closes the editor from outside while it is open (the back button). */
+let dismissEditor = null;
+
+/** Back out of the editor as though 취소 had been pressed. */
+export function closeEditor() {
+  if (dismissEditor) dismissEditor();
+}
+
 /**
  * Show the editor for `photo` and resolve with what the user chose:
  * `{ outline, flatten }`, or null when they backed out.
+ *
+ * `start` is the outline to begin from - what a page was scanned with, when
+ * its region is being picked again.  Without one the page is detected afresh,
+ * which is also what 자동 감지 does at any time.
  */
-export function openEditor(photo, { flatten = true, detect = true } = {}) {
+export function openEditor(photo, { flatten = true, detect = true, start = null } = {}) {
   const section = grab("editor");
   const canvas = grab("editor-canvas");
   const hint = grab("editor-hint");
   const context = canvas.getContext("2d");
 
-  const detected = detect ? detectOutline(photo) : null;
+  const detected = (detect && !start) ? detectOutline(photo) : null;
   const state = {
-    outline: detected ? detected.outline : defaultOutline(photo.width, photo.height),
+    outline: start ? new Outline(start.corners, start.midpoints)
+      : (detected ? detected.outline : defaultOutline(photo.width, photo.height)),
     flatten,
     dragging: null,
     scale: 1,
@@ -122,9 +135,13 @@ export function openEditor(photo, { flatten = true, detect = true } = {}) {
   // survives: a preview frame and a real still are worlds apart
   size.textContent = `${photo.width}×${photo.height}`;
 
-  hint.textContent = detected && !detected.found
-    ? "문서를 찾지 못했습니다 — 모서리를 직접 맞춰주세요"
-    : "모서리를 끌어 맞추고, 변의 손잡이로 휜 정도를 조절하세요";
+  if (start) {
+    hint.textContent = "이 페이지를 잡았던 영역입니다 — 고치거나 '자동 감지'로 다시 찾으세요";
+  } else {
+    hint.textContent = detected && !detected.found
+      ? "문서를 찾지 못했습니다 — 모서리를 직접 맞춰주세요"
+      : "모서리를 끌어 맞추고, 변의 손잡이로 휜 정도를 조절하세요";
+  }
 
   function layout() {
     const stage = canvas.parentElement.getBoundingClientRect();
@@ -247,14 +264,17 @@ export function openEditor(photo, { flatten = true, detect = true } = {}) {
   }
 
   return new Promise((resolve) => {
+    const onNativeClose = () => finish(null);
     const finish = (value) => {
+      dismissEditor = null;
+      section.removeEventListener("close", onNativeClose);
       window.removeEventListener("resize", onResize);
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);
       canvas.removeEventListener("pointercancel", onUp);
       buttons.forEach(([element, handler]) => element.removeEventListener("click", handler));
-      section.hidden = true;
+      if (section.open) section.close();
       resolve(value);
     };
 
@@ -344,7 +364,9 @@ export function openEditor(photo, { flatten = true, detect = true } = {}) {
     window.addEventListener("resize", onResize);
 
     setFlatten(state.flatten);
-    section.hidden = false;
+    dismissEditor = () => finish(null);
+    section.addEventListener("close", onNativeClose);
+    section.showModal();
     layout();
     draw();
   });

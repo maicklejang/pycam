@@ -67,7 +67,7 @@
   </div>
 </footer>
 
-<section id="editor" class="editor" hidden aria-label="문서 영역 선택">
+<dialog id="editor" class="editor" aria-label="문서 영역 선택">
   <header class="editor__head">
     <span id="editor-hint" class="editor__hint"></span>
     <span id="editor-size" class="editor__size"></span>
@@ -85,7 +85,7 @@
     <button id="editor-cancel" class="chip">취소</button>
     <button id="editor-apply" class="chip chip--primary">확인</button>
   </footer>
-</section>
+</dialog>
 
 <dialog id="sheet" class="sheet">
   <header class="sheet__bar">
@@ -115,6 +115,7 @@
             aria-label="다음 페이지">›</button>
   </div>
   <footer class="viewer__actions">
+    <button id="viewer-edit" class="chip">편집</button>
     <button id="viewer-rotate" class="chip">회전</button>
     <button id="viewer-save" class="chip">저장</button>
     <button id="viewer-remove" class="chip chip--danger">삭제</button>

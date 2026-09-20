@@ -23,6 +23,7 @@ const ui = {
   position: null,
   previous: null,
   next: null,
+  edit: null,
   rotate: null,
   save: null,
   remove: null,
@@ -44,6 +45,11 @@ const state = {
   lastTapAt: [0, 0],
   url: null,
 };
+
+/** Shut the viewer from outside (the back button). */
+export function closeViewer() {
+  close();
+}
 
 /** True while the viewer is on screen. */
 export function isOpen() {
@@ -244,6 +250,14 @@ export function setupViewer(elements, actions = {}) {
     } finally {
       ui.rotate.disabled = false;
     }
+  });
+  ui.edit.addEventListener("click", () => {
+    const page = state.pages[state.index];
+    if (!page || !actions.edit) return;
+    // the editor takes the whole screen: step out of the way and let what
+    // comes back through refreshViewer bring the page up again
+    close();
+    actions.edit(page);
   });
   ui.save.addEventListener("click", () => {
     const page = state.pages[state.index];

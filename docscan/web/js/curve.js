@@ -119,6 +119,11 @@ export class CurvedQuad {
     return new CurvedQuad(this.corners, this.controls);
   }
 
+  /** Corners and edge midpoints, as the editor and the page store want them. */
+  asDict() {
+    return { corners: this.corners.map((point) => point.slice()), midpoints: this.midpoints };
+  }
+
   edgeLength(index, samples = 64) {
     let total = 0;
     let previous = this.edge(index, 0);
