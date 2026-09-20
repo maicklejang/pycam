@@ -28,19 +28,20 @@
 </header>
 
 <main id="main">
-  <section class="view" id="view-calc"></section>
+  <section class="view" id="view-map"></section>
+  <section class="view" id="view-calc" hidden></section>
   <section class="view" id="view-shop" hidden></section>
+  <section class="view" id="view-more" hidden></section>
   <section class="view" id="view-grid" hidden></section>
   <section class="view" id="view-log" hidden></section>
   <section class="view" id="view-safety" hidden></section>
 </main>
 
 <nav class="tabbar" id="tabbar">
-  <button data-view="calc" class="active"><b>설정</b><small>파워·속도</small></button>
+  <button data-view="map" class="active"><b>파워맵</b><small>한눈에</small></button>
+  <button data-view="calc"><b>소재별</b><small>자세히</small></button>
   <button data-view="shop"><b>재료</b><small>주문</small></button>
-  <button data-view="grid"><b>테스트</b><small>G코드</small></button>
-  <button data-view="log"><b>기록</b><small>내 설정</small></button>
-  <button data-view="safety"><b>안전</b><small>금지소재</small></button>
+  <button data-view="more"><b>더보기</b><small>테스트·안전</small></button>
 </nav>
 
 <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>

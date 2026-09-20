@@ -12,7 +12,8 @@
 
 | 화면 | 기능 |
 |---|---|
-| **설정** | 소재 26종 x 절단/외곽선/조각 x 장비 10종 프리셋(CO2 40~150W · 파이버 마킹기 20~100W, 직접 입력 가능)의 출력%·속도·패스 계산, 두께별 요약표 |
+| **파워맵** | 소재(세로) x 두께(가로) 한 표에 출력%·속도·패스. 첫 화면 |
+| **소재별** | 소재 26종 x 절단/외곽선/조각 x 장비 10종 프리셋(CO2 40~150W · 파이버 마킹기 20~100W, 직접 입력 가능)의 출력%·속도·패스 계산, 두께별 요약표 |
 | **재료** | 상품 목록·장바구니·주문서 작성(카톡 공유 / 메일 / 복사 / 서버 전송) |
 | **테스트** | 파워 x 속도 테스트 그리드 G코드 생성 (GRBL·LightBurn·LaserGRBL) |
 | **기록** | 실제로 잘 나온 값을 기기에 저장, JSON 내보내기 |
@@ -28,7 +29,7 @@
 ## 2. 실행
 
 ```bash
-cd laser-app
+cd docs/laserpowemap
 python3 -m http.server 8000
 # 브라우저에서 http://localhost:8000
 ```
@@ -51,8 +52,9 @@ CSS·JS·아이콘이 모두 들어 있어 **더블클릭하면 바로 열리고
 
 ## 4. 배포 (고객에게 나눠줄 주소 만들기)
 
-* **GitHub Pages** — 저장소 Settings → Pages → 브랜치와 `/laser-app` 폴더 선택
-* **Netlify / Vercel** — `laser-app` 폴더를 그대로 끌어다 놓기
+* **GitHub Pages** — 저장소 Settings → Pages → Source 를 "Deploy from a branch" 로 두고
+  브랜치 선택 + 폴더는 **/docs** → 주소는 `https://<사용자>.github.io/pycam/laserpowemap/`
+* **Netlify / Vercel** — `docs/laserpowemap` 폴더를 그대로 끌어다 놓기
 * **직접 운영하는 웹서버** — 폴더를 통째로 업로드
 
 > HTTPS(또는 localhost)에서만 "홈 화면에 설치"와 오프라인 캐시가 동작합니다.
@@ -109,7 +111,7 @@ CSS·JS·아이콘이 모두 들어 있어 **더블클릭하면 바로 열리고
 ## 7. 테스트
 
 ```bash
-node --test laser-app/tests/engine.test.mjs
+node --test docs/laserpowemap/tests/engine.test.mjs
 ```
 
 계산 범위·장비별 절단 한계·파이버 프리셋·데이터 무결성·상품 연결·G코드 문법을 검사합니다 (17개).
@@ -117,7 +119,7 @@ node --test laser-app/tests/engine.test.mjs
 ## 8. 파일 구성
 
 ```
-laser-app/
+docs/laserpowemap/
 ├── index.html              앱 껍데기
 ├── manifest.webmanifest    설치 정보(이름·아이콘·시작 주소)
 ├── sw.js                   오프라인 캐시

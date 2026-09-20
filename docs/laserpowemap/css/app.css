@@ -188,3 +188,23 @@ td.x{color:var(--dim)}
 .matrix div.hdr{background:transparent;color:var(--dim);font-weight:700}
 .log-item{border-bottom:1px solid var(--line);padding:11px 0}
 .log-item .t{font-size:11px;color:var(--dim)}
+
+/* ---------- 파워맵 ---------- */
+.map-card{padding:10px}
+.map-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.map{border-collapse:separate;border-spacing:0;font-size:12px;width:max-content;min-width:100%}
+.map th,.map td{border-bottom:1px solid var(--line);padding:5px 7px;white-space:nowrap}
+.map thead th{position:sticky;top:0;background:var(--card);color:var(--muted);font-size:11px;text-align:center;z-index:1}
+.map th.mat{position:sticky;left:0;background:var(--card);text-align:left;font-weight:600;font-size:12.5px;min-width:104px;max-width:140px;white-space:normal;line-height:1.25;z-index:2}
+.map thead th.mat{z-index:3}
+.map td{text-align:center;cursor:pointer}
+.map td.no{color:var(--dim);cursor:default}
+.map td.hard{background:#241c10}
+.map td:active{background:#2c2216}
+.cell{display:flex;flex-direction:column;align-items:center;gap:0;min-width:48px}
+.cell b{font-size:13px;color:var(--accent2);font-weight:800;font-variant-numeric:tabular-nums}
+.cell span{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.cell .p{font-size:10px;color:var(--accent);font-weight:700}
+.cat-row td{background:#151b24;color:var(--muted);font-size:11px;font-weight:700;text-align:left;cursor:default}
+.map td.lead{color:var(--accent2);font-weight:800}
+.back-link{display:inline-block;margin-bottom:10px;color:var(--muted);font-size:13px;font-weight:600;padding:4px 2px}

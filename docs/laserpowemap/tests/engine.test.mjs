@@ -1,4 +1,4 @@
-/* 계산 엔진 회귀 테스트:  node --test laser-app/tests/engine.test.mjs */
+/* 계산 엔진 회귀 테스트:  node --test docs/laserpowemap/tests/engine.test.mjs */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";

@@ -16,6 +16,7 @@
     dpi: null,
     cat: "all",
     q: "",
+    mapOp: "cut",
     lastResult: null,
   };
 
@@ -93,14 +94,181 @@
   }
 
   /* ============================ 뷰 전환 ============================ */
+  const VIEWS = ["map", "calc", "shop", "more", "grid", "log", "safety"];
+  const SUB_VIEWS = ["grid", "log", "safety"];
+  const RENDER = {
+    map: renderMap, calc: renderCalc, shop: renderShop, more: renderMore,
+    grid: renderGrid, log: renderLog, safety: renderSafety,
+  };
+
   function setView(v) {
     state.view = v;
-    ["calc", "shop", "grid", "log", "safety"].forEach((n) => {
-      $("#view-" + n).hidden = n !== v;
-    });
-    $$("#tabbar button").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
+    VIEWS.forEach((n) => { $("#view-" + n).hidden = n !== v; });
+    const tab = SUB_VIEWS.includes(v) ? "more" : v;
+    $$("#tabbar button").forEach((b) => b.classList.toggle("active", b.dataset.view === tab));
     window.scrollTo(0, 0);
-    ({ calc: renderCalc, shop: renderShop, grid: renderGrid, log: renderLog, safety: renderSafety }[v])();
+    RENDER[v]();
+    if (SUB_VIEWS.includes(v)) {
+      const box = $("#view-" + v);
+      const back = document.createElement("button");
+      back.className = "back-link";
+      back.textContent = "← 더보기";
+      back.addEventListener("click", () => setView("more"));
+      box.insertBefore(back, box.firstChild);
+    }
+  }
+
+  /* ============================ 파워맵 (첫 화면) ============================ */
+  /* 두께대가 다른 소재를 한 표에 넣으면 정작 많이 쓰는 칸이 화면 밖으로 밀린다 */
+  const MAP_GROUPS = [
+    { title: "판재", cats: ["wood", "acrylic", "plastic"], cols: [2, 3, 4, 5, 6, 8, 10, 12, 15, 20] },
+    { title: "얇은 소재", cats: ["paper", "leather", "fabric", "rubber"], cols: [0.2, 0.5, 1, 1.5, 2, 3, 4, 5] },
+  ];
+
+  function renderMap() {
+    const v = $("#view-map");
+    const machine = Store.machine();
+    const isFiber = machine.type === "fiber";
+    const op = isFiber ? "engrave" : state.mapOp;
+
+    v.innerHTML = `
+      <div class="card">
+        <div class="row wrap">
+          <h3 style="flex:1">파워맵</h3>
+          <button class="chip on" id="mapMachine">${esc(machineLabel(machine))}</button>
+        </div>
+        <p class="small muted" style="margin:6px 0 0">
+          내 장비 출력에 맞춘 시작값입니다. 칸을 누르면 패스·초점·주의사항까지 볼 수 있습니다.</p>
+        ${isFiber ? "" : `<div class="filter-row" style="margin-top:10px">
+          <button class="chip ${op === "cut" ? "on" : ""}" data-mapop="cut">절단</button>
+          <button class="chip ${op === "engrave" ? "on" : ""}" data-mapop="engrave">조각</button>
+        </div>`}
+      </div>
+      ${op === "cut" ? cutTables(machine) : `<div class="card map-card">${engraveTable(machine)}</div>`}
+      <div class="card small muted">
+        ${op === "cut"
+          ? "칸의 윗줄은 <b>출력 %</b>, 아랫줄은 <b>속도 mm/min</b>, x2 는 <b>패스 수</b>입니다. 회색 칸은 이 장비 출력으로 관통되지 않는 두께입니다."
+          : isFiber
+            ? "칸은 <b>출력 % / 속도 mm/s / 주파수</b> 입니다. 해치 간격과 소요 시간은 칸을 누르면 나옵니다."
+            : "기본 해상도 기준값입니다. DPI 를 바꾸려면 칸을 눌러 상세로 들어가세요."}
+        <br>모든 값은 시작값입니다. 자투리로 한 번 확인한 뒤 본작업하세요.
+      </div>`;
+
+    $("#mapMachine", v).addEventListener("click", machineSheet);
+    $$("button[data-mapop]", v).forEach((b) => b.addEventListener("click", () => {
+      state.mapOp = b.dataset.mapop; renderMap();
+    }));
+    $$("td[data-cell]", v).forEach((td) => td.addEventListener("click", () => {
+      const [id, t] = td.dataset.cell.split("|");
+      mapSheet(id, t ? parseFloat(t) : null);
+    }));
+  }
+
+  function mapRows(list, cells) {
+    let out = "";
+    let cat = null;
+    list.forEach((m) => {
+      if (m.category !== cat) {
+        cat = m.category;
+        out += `<tr class="cat-row"><td colspan="99">${esc(CATEGORY_LABELS[cat])}</td></tr>`;
+      }
+      /* 표에서는 괄호 설명을 빼 한 줄로 읽히게 한다 (전체 이름은 상세에서) */
+      out += `<tr><th class="mat">${esc(m.name.replace(/\s*\(.*?\)\s*/g, " ").trim())}</th>${cells(m)}</tr>`;
+    });
+    return out;
+  }
+
+  function cutTables(machine) {
+    return MAP_GROUPS.map((g) => {
+      const list = MATERIALS.filter((m) => m.cut && m.factor[machine.type] && g.cats.includes(m.category));
+      if (!list.length) return "";
+      const cols = g.cols.filter((t) => list.some((m) => LaserEngine.calcCut(m, t, machine).ok));
+      if (!cols.length) return "";
+      return `<div class="card map-card">
+        <div class="section-title" style="margin:2px 2px 8px">${esc(g.title)}</div>
+        <div class="map-wrap"><table class="map">
+          <thead><tr><th class="mat">소재</th>${cols.map((t) => `<th>${t}mm</th>`).join("")}</tr></thead>
+          <tbody>${mapRows(list, (m) => cols.map((t) => {
+            const r = LaserEngine.calcCut(m, t, machine);
+            if (!r.ok) return `<td class="no">-</td>`;
+            return `<td data-cell="${m.id}|${t}" class="${r.level === "ok" ? "" : "hard"}">
+              <div class="cell"><b>${r.powerPct}%</b><span>${r.speedMmMin}</span>${r.passes > 1 ? `<span class="p">x${r.passes}</span>` : ""}</div>
+            </td>`;
+          }).join(""))}</tbody>
+        </table></div>
+      </div>`;
+    }).join("");
+  }
+
+  function engraveTable(machine) {
+    const isFiber = machine.type === "fiber";
+    const list = MATERIALS.filter((m) => LaserEngine.calcEngrave(m, machine).ok);
+    if (!list.length) return `<p class="muted small">이 장비로 조각할 수 있는 소재가 없습니다.</p>`;
+    const head = isFiber
+      ? ["출력", "속도 mm/s", "주파수", "패스"]
+      : ["출력", "속도 mm/min", "DPI", "100x100 소요"];
+    return `<div class="map-wrap"><table class="map">
+      <thead><tr><th class="mat">소재</th>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
+      <tbody>${mapRows(list, (m) => {
+        const r = LaserEngine.calcEngrave(m, machine);
+        const cells = isFiber
+          ? [r.powerPct + "%", r.speedMmS, r.freqKhz + "kHz", "x" + r.passes]
+          : [r.powerPct + "%", r.speedMmMin, r.dpi, fmtSec(r.secPer100mm2)];
+        return cells.map((c, i) => `<td data-cell="${m.id}|" class="${i === 0 ? "lead" : ""}">${esc(c)}</td>`).join("");
+      })}</tbody></table></div>`;
+  }
+
+  function mapSheet(materialId, thickness) {
+    const mat = LaserEngine.getMaterial(materialId);
+    const machine = Store.machine();
+    const op = thickness ? "cut" : "engrave";
+    const r = LaserEngine.calculate({ material: mat.id, op, thickness, machine, dpi: null });
+    const product = PRODUCTS.find((p) => p.materialId === mat.id);
+    const isFiber = machine.type === "fiber";
+    const rows = op === "cut"
+      ? [["출력", r.powerPct + " %"], ["속도", r.speedMmMin + " mm/min (" + r.speedMmS + " mm/s)"],
+         ["패스", r.passes + " 회"], ["초점", r.focus], ["에어어시스트", "켜기(권장)"],
+         ["커프(절단폭)", r.kerf + " mm"], ["1m 절단 소요", fmtSec(r.secPerMeter)]]
+      : isFiber
+        ? [["출력", r.powerPct + " %"], ["속도", r.speedMmS + " mm/s"], ["주파수", r.freqKhz + " kHz"],
+           ["해치 간격", r.hatchMm + " mm"], ["패스", r.passes + " 회"], ["100x100mm 소요", fmtSec(r.secPer100mm2)]]
+        : [["출력", r.powerPct + " %"], ["속도", r.speedMmMin + " mm/min"], ["해상도", r.dpi + " DPI"],
+           ["라인 간격", r.spacing + " mm"], ["100x100mm 소요", fmtSec(r.secPer100mm2)]];
+
+    openSheet(`${mat.name}${thickness ? " " + thickness + "mm" : ""} · ${opLabel(op)}`, `
+      <div class="small muted" style="margin-top:0">${esc(machineLabel(machine))} 기준 시작값</div>
+      <div class="meta" style="margin-top:10px">${rows.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>
+      ${(r.warnings || []).concat(mat.warns || []).map((w) => `<div class="warn">${esc(w)}</div>`).join("")}
+      ${(r.notes || []).concat(mat.tips || []).slice(0, 3).map((n) => `<div class="note">${esc(n)}</div>`).join("")}
+      <div class="btn-row">
+        <button class="btn" id="msDetail">소재별 상세</button>
+        <button class="btn" id="msLog">기록 저장</button>
+      </div>
+      ${product ? `<div class="btn-row"><button class="btn primary block" id="msBuy">${esc(mat.name)} 구매하기</button></div>` : ""}
+    `, (body) => {
+      $("#msDetail", body).addEventListener("click", () => {
+        closeSheet(); setView("calc"); state.op = op; if (thickness) state.thickness = thickness; selectMaterial(mat.id);
+      });
+      $("#msLog", body).addEventListener("click", () => saveLogSheet(r, mat, machine));
+      if (product) $("#msBuy", body).addEventListener("click", () => {
+        closeSheet(); setView("shop"); setTimeout(() => productSheet(product.id), 60);
+      });
+    });
+  }
+
+  /* ============================ 더보기 ============================ */
+  function renderMore() {
+    const v = $("#view-more");
+    v.innerHTML = `
+      <div class="list-choice">
+        <button data-go="grid"><b>테스트 그리드</b><span class="spacer"></span><span class="small muted">G코드 만들기</span></button>
+        <button data-go="log"><b>내 기록</b><span class="spacer"></span><span class="small muted">저장한 설정</span></button>
+        <button data-go="safety"><b>안전 · 문의</b><span class="spacer"></span><span class="small muted">금지 소재</span></button>
+      </div>
+      <div class="card small muted" style="margin-top:12px">
+        ${esc(SHOP_CONFIG.seller)} · ${esc(SHOP_CONFIG.phone)}<br>레이저 소재 가이드 v${esc(APP_VERSION)}
+      </div>`;
+    $$("button[data-go]", v).forEach((b) => b.addEventListener("click", () => setView(b.dataset.go)));
   }
 
   /* ============================ 장비 설정 ============================ */
@@ -834,12 +1002,12 @@
     syncCart();
     $("#machineBtn").addEventListener("click", machineSheet);
     $("#cartBtn").addEventListener("click", cartSheet);
-    $("#brandBtn").addEventListener("click", () => setView("calc"));
+    $("#brandBtn").addEventListener("click", () => setView("map"));
     $("#sheetClose").addEventListener("click", closeSheet);
     $("#sheetBackdrop").addEventListener("click", closeSheet);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
     $$("#tabbar button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
-    setView("calc");
+    setView("map");
     /*
      * 오프라인 캐시는 이 앱이 자기 주소에서 단독으로 열릴 때만 쓴다.
      * 미리보기·임베드(iframe)처럼 주소를 다른 페이지와 공유하는 환경에서 등록하면
