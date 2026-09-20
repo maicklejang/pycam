@@ -39,7 +39,16 @@
     $("#sheet").hidden = true;
     $("#sheetBackdrop").hidden = true;
   }
+  /* 미리보기나 임베드(iframe) 환경에서는 파일 저장이 막혀 있어 클립보드로 대신한다 */
+  const canDownload = (() => {
+    try { return window.self === window.top; } catch (e) { return false; }
+  })();
   function download(name, text, mime) {
+    if (!canDownload) {
+      copy(text);
+      toast("이 화면에서는 파일 저장이 막혀 있어 클립보드에 복사했습니다");
+      return;
+    }
     const blob = new Blob([text], { type: mime || "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
