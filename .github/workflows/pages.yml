@@ -18,13 +18,18 @@ name: Deploy mobile viewer
 # a dangling one, which makes a whole-repository deployment fail.
 #
 # Requires "Settings -> Pages -> Source" to be set to "GitHub Actions".
+#
+# The github-pages environment only lets the branches listed below deploy, so
+# this runs from master (and the viewer branch). A feature branch that is not
+# on that list fails in one second with a protection-rule error, which is why
+# the laser branch is not a trigger here: merging it to master is what ships
+# the app.
 
 on:
   push:
     branches:
       - master
       - claude/stl-step-dxf-mobile-app-wvtxta
-      - claude/laser-material-specs-app-rw6bma
     paths:
       - 'mobile/**'
       - 'docscan/web/**'
