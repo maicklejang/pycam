@@ -16,6 +16,9 @@ const HANDLE_RADIUS = 13;          // drawn size
 const GRAB_RADIUS = 30;            // finger sized hit area
 const LOUPE_RADIUS = 58;
 const LOUPE_ZOOM = 2.6;
+const VIEW_PAD = 22;               // CSS px of room around the picture
+//: a corner may sit this far outside the photo, as a fraction of its long side
+const REACH = 0.06;
 
 const ui = {};
 
@@ -128,6 +131,7 @@ export function openEditor(photo, { flatten = true, detect = true, start = null 
     scale: 1,
     offsetX: 0,
     offsetY: 0,
+    view: { left: 0, top: 0, right: photo.width, bottom: photo.height },
   };
 
   const size = grab("editor-size");
@@ -143,23 +147,58 @@ export function openEditor(photo, { flatten = true, detect = true, start = null 
       : "모서리를 끌어 맞추고, 변의 손잡이로 휜 정도를 조절하세요";
   }
 
+  /**
+   * What the canvas has to show.
+   *
+   * Not just the photo: a page that runs off the frame has corners outside
+   * it - where its two borders would cross - and a handle drawn outside the
+   * canvas cannot be touched, which leaves the region stuck as it is.  So the
+   * view is the photo plus a margin, widened further if the outline reaches
+   * past that, and the photo is drawn inside it.
+   */
+  function refit() {
+    const reach = REACH * Math.max(photo.width, photo.height);
+    const view = { left: -reach, top: -reach,
+                   right: photo.width + reach, bottom: photo.height + reach };
+    const points = state.outline.corners.concat(state.outline.midpoints);
+    points.forEach(([x, y]) => {
+      view.left = Math.min(view.left, x);
+      view.top = Math.min(view.top, y);
+      view.right = Math.max(view.right, x);
+      view.bottom = Math.max(view.bottom, y);
+    });
+    state.view = view;
+  }
+
   function layout() {
     const stage = canvas.parentElement.getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
-    const scale = Math.min(stage.width / photo.width, stage.height / photo.height);
-    const width = Math.max(1, Math.floor(photo.width * scale));
-    const height = Math.max(1, Math.floor(photo.height * scale));
+    const view = state.view;
+    const spanX = Math.max(1, view.right - view.left);
+    const spanY = Math.max(1, view.bottom - view.top);
+    const room = { width: Math.max(80, stage.width - 2 * VIEW_PAD),
+                   height: Math.max(80, stage.height - 2 * VIEW_PAD) };
+    const scale = Math.min(room.width / spanX, room.height / spanY);
+    const width = Math.max(1, Math.floor(spanX * scale + 2 * VIEW_PAD));
+    const height = Math.max(1, Math.floor(spanY * scale + 2 * VIEW_PAD));
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     canvas.width = Math.floor(width * ratio);
     canvas.height = Math.floor(height * ratio);
-    state.scale = (width * ratio) / photo.width;
-    state.offsetX = 0;
-    state.offsetY = 0;
+    state.scale = scale * ratio;
+    state.offsetX = (VIEW_PAD - view.left * scale) * ratio;
+    state.offsetY = (VIEW_PAD - view.top * scale) * ratio;
+    // where the picture ended up inside the canvas, in CSS pixels, for
+    // anything that has to line up with it from the outside
+    canvas.dataset.photo = [VIEW_PAD - view.left * scale, VIEW_PAD - view.top * scale,
+                            photo.width * scale, photo.height * scale]
+      .map((value) => Math.round(value)).join(",");
   }
 
-  const toCanvas = (point) => [point[0] * state.scale, point[1] * state.scale];
-  const toPhoto = (x, y) => [x / state.scale, y / state.scale];
+  const toCanvas = (point) => [point[0] * state.scale + state.offsetX,
+                               point[1] * state.scale + state.offsetY];
+  const toPhoto = (x, y) => [(x - state.offsetX) / state.scale,
+                             (y - state.offsetY) / state.scale];
 
   function drawLoupe(point) {
     const [x, y] = toCanvas(point);
@@ -196,7 +235,17 @@ export function openEditor(photo, { flatten = true, detect = true, start = null 
   function draw() {
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.clearRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(photo, 0, 0, canvas.width, canvas.height);
+    // the area around the photo is part of the canvas now, so the edge of the
+    // picture is drawn rather than implied by where the canvas stops
+    context.fillStyle = "#101319";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const [px, py] = toCanvas([0, 0]);
+    const pw = photo.width * state.scale;
+    const ph = photo.height * state.scale;
+    context.drawImage(photo, px, py, pw, ph);
+    context.strokeStyle = "rgba(255, 255, 255, 0.35)";
+    context.lineWidth = 1;
+    context.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
 
     const corners = state.outline.corners.map(toCanvas);
     const curved = state.outline.toCurved();
@@ -298,8 +347,11 @@ export function openEditor(photo, { flatten = true, detect = true, start = null 
       if (!state.dragging) return;
       const [x, y] = pointOf(event);
       const [photoX, photoY] = toPhoto(x, y);
-      const limitX = clamp(photoX, 0, photo.width - 1);
-      const limitY = clamp(photoY, 0, photo.height - 1);
+      // a corner may be placed outside the photo - a page can run off the
+      // frame - but not outside what the canvas shows, or it could not be
+      // picked up again
+      const limitX = clamp(photoX, state.view.left, state.view.right);
+      const limitY = clamp(photoY, state.view.top, state.view.bottom);
       if (state.dragging.kind === "corner") {
         state.outline.moveCorner(state.dragging.index, limitX, limitY);
       } else {
@@ -318,7 +370,16 @@ export function openEditor(photo, { flatten = true, detect = true, start = null 
       draw();
     }
 
+    /** Take in a whole new outline: the view has to be refitted around it. */
+    function replace(outline) {
+      state.outline = outline;
+      refit();
+      layout();
+      draw();
+    }
+
     function onResize() {
+      refit();
       layout();
       draw();
     }
@@ -332,17 +393,15 @@ export function openEditor(photo, { flatten = true, detect = true, start = null 
     const buttons = [
       [grab("editor-auto"), () => {
         const result = detectOutline(photo);
-        state.outline = result.outline;
         hint.textContent = result.found
           ? "자동으로 다시 찾았습니다"
           : "문서를 찾지 못했습니다 — 모서리를 직접 맞춰주세요";
-        draw();
+        replace(result.outline);
       }],
       [grab("editor-all"), () => {
-        state.outline = new Outline([[0, 0], [photo.width - 1, 0],
-                                     [photo.width - 1, photo.height - 1],
-                                     [0, photo.height - 1]]);
-        draw();
+        replace(new Outline([[0, 0], [photo.width - 1, 0],
+                             [photo.width - 1, photo.height - 1],
+                             [0, photo.height - 1]]));
       }],
       [grab("editor-straight"), () => {
         state.outline.straighten();
@@ -367,6 +426,7 @@ export function openEditor(photo, { flatten = true, detect = true, start = null 
     dismissEditor = () => finish(null);
     section.addEventListener("close", onNativeClose);
     section.showModal();
+    refit();
     layout();
     draw();
   });

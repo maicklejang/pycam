@@ -199,10 +199,19 @@ async function main() {
       return `${outline} outline pixels`;
     });
 
+    // the editor leaves room around the picture so that handles outside it can
+    // still be reached, and says where the picture landed
+    const photoBox = async () => {
+      const box = await canvasBox();
+      const [x, y, width, height] = await page.$eval(
+        "#editor-canvas", (node) => node.dataset.photo.split(",").map(Number));
+      return { left: box.left + x, top: box.top + y, width, height };
+    };
+
     let draggedArea = 0;
     await step("dragging a corner changes the region", async () => {
       await page.click("#editor-all");      // corners sit on the photo corners now
-      const box = await canvasBox();
+      const box = await photoBox();
       await page.mouse.move(box.left + 3, box.top + 3);
       await page.mouse.down();
       await page.mouse.move(box.left + box.width * 0.3, box.top + box.height * 0.3,
@@ -232,7 +241,7 @@ async function main() {
     await step("bending an edge flattens the page", async () => {
       await openShutter();
       await page.click("#editor-all");
-      const box = await canvasBox();
+      const box = await photoBox();
       // the top edge handle sits in the middle of the top border; pull it down
       await page.mouse.move(box.left + box.width / 2, box.top + 3);
       await page.mouse.down();
@@ -382,6 +391,69 @@ async function main() {
       return `${shot} shot, page ${before[0]} -> ${after[0]}, still ${after.length} pages`;
     });
 
+    await step("a region that reaches outside the shot can still be grabbed",
+               async () => {
+                 // a page running off the frame has corners where its borders
+                 // would cross, outside the picture; drawn there they used to
+                 // land off the canvas, where no finger could reach them
+                 const corners = await page.evaluate(async () => {
+                   const store = await import("./js/store.js");
+                   const pages = await store.loadPages();
+                   const entry = pages[0];
+                   const wide = [[-260, -180], [1480, -120], [1520, 900], [-300, 820]];
+                   entry.outline = {
+                     corners: wide,
+                     midpoints: wide.map((corner, index) => {
+                       const next = wide[(index + 1) % 4];
+                       return [(corner[0] + next[0]) / 2, (corner[1] + next[1]) / 2];
+                     }),
+                   };
+                   await store.savePage(entry);
+                   return wide;
+                 });
+                 // the app holds its own copy of the pages, so let it read the
+                 // stored one back
+                 await page.reload();
+                 await page.waitForFunction(
+                   () => document.getElementById("page-count").textContent === "5",
+                   null, { timeout: 60000 });
+                 await page.click("#gallery");
+                 await page.waitForSelector(".thumb img");
+                 await page.click(".thumb .thumb__tools button:nth-child(2)");   // 편집
+                 await page.waitForSelector("#editor[open]", { timeout: 60000 });
+                 const box = await photoBox();
+                 const shot = await page.$eval("#editor-size", (node) => node.textContent);
+                 const [shotWidth, shotHeight] = shot.split("×").map(Number);
+                 const canvas = await canvasBox();
+                 const places = corners.map(([x, y]) => ({
+                   x: box.left + (x * box.width) / shotWidth,
+                   y: box.top + (y * box.height) / shotHeight,
+                 }));
+                 places.forEach((place, index) => {
+                   const insideX = place.x >= canvas.left && place.x <= canvas.left + canvas.width;
+                   const insideY = place.y >= canvas.top && place.y <= canvas.top + canvas.height;
+                   if (!insideX || !insideY) {
+                     throw new Error(`corner ${index} is off the canvas at `
+                                     + `${Math.round(place.x)},${Math.round(place.y)}`);
+                   }
+                 });
+                 // and it really is the handle: drag it well inside the photo
+                 await page.mouse.move(places[0].x, places[0].y);
+                 await page.mouse.down();
+                 await page.mouse.move(box.left + box.width * 0.25, box.top + box.height * 0.25,
+                                       { steps: 10 });
+                 await page.mouse.up();
+                 const moved = await page.evaluate(() => {
+                   const node = document.getElementById("editor-canvas");
+                   const [x, y, width, height] = node.dataset.photo.split(",").map(Number);
+                   return { x, y, width, height };
+                 });
+                 await page.click("#editor-cancel");
+                 await page.waitForSelector("#editor", { state: "hidden", timeout: 60000 });
+                 return `corners ${corners[0]} .. ${corners[2]} all reachable in a `
+                   + `${moved.width}x${moved.height} picture`;
+               });
+
     await step("the back button steps out instead of leaving", async () => {
       await page.click(".thumb img");
       await page.waitForSelector("#viewer[open]");
@@ -420,7 +492,11 @@ async function main() {
                async () => {
                  const before = await page.$$eval(".thumb .thumb__index",
                                                   (nodes) => nodes.map((n) => n.textContent));
-                 await page.click("#sheet-close");
+                 // close it with back, so no history request is still in
+                 // flight when the reload starts
+                 await page.goBack();
+                 await page.waitForFunction(
+                   () => !document.getElementById("sheet").open, null, { timeout: 30000 });
                  await page.reload();
                  await page.waitForFunction(
                    () => document.getElementById("page-count").textContent === "5",
