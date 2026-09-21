@@ -1,0 +1,7 @@
+# docscan requirements
+#
+# opencv-python includes the GUI (the live camera preview needs it).
+# On a server without a display, opencv-python-headless is enough when you
+# only use "docscan scan" or "docscan camera --no-preview".
+numpy>=1.20
+opencv-python>=4.5
