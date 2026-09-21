@@ -390,15 +390,23 @@ export async function runAll(fixturesUrl = "./fixtures/") {
       const field = textLineField(bowed);
       const fixed = straightenTextLines(bowed);
       const after = textLineField(fixed);
+      const flat = textLineField(image);
       try {
         assert(field, "the bowed page gave no text lines");
         let before = 0;
         for (const value of field) before = Math.max(before, Math.abs(value));
         let left = 0;
         if (after) for (const value of after) left = Math.max(left, Math.abs(value));
+        // the fixture reads a little wander of its own even unbent; getting
+        // back to that is as straight as this page goes
+        let floor = 0;
+        if (flat) for (const value of flat) floor = Math.max(floor, Math.abs(value));
         assert(before > 8, `only ${before.toFixed(1)} px of bow was measured`);
-        assert(left < before * 0.35, `${left.toFixed(1)} px left of ${before.toFixed(1)}`);
-        return `bow ${before.toFixed(1)} px -> ${left.toFixed(1)} px`;
+        assert(left <= floor + 1.0,
+               `${left.toFixed(1)} px left of ${before.toFixed(1)}, `
+               + `over the ${floor.toFixed(1)} px the flat page reads`);
+        return `bow ${before.toFixed(1)} px -> ${left.toFixed(1)} px `
+               + `(flat page reads ${floor.toFixed(1)} px)`;
       } finally {
         [image, bowed, mapX, mapY, fixed].forEach((mat) => mat.delete());
       }

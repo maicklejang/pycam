@@ -663,7 +663,13 @@ def text_line_field(image, bands=14, min_lines=5, max_shift_ratio=0.08):
     if len(peaks[middle]) < min_lines:
         return None
 
-    tolerance = max(4.0, height * 0.02)
+    # How far a line may move from one band to the next.  Never as far as the
+    # next line: a rule that stops short - a short row in a table, the end of
+    # a paragraph - leaves the walk with its neighbour as the nearest peak,
+    # and stepping onto it reports a whole line spacing as a bend.  That is
+    # what turns a straight page wavy.
+    spacing = float(np.median(np.diff(peaks[middle])))
+    tolerance = max(2.0, min(height * 0.02, 0.35 * spacing))
     lines = []
     for seed in peaks[middle]:
         positions = {middle: seed}
@@ -687,16 +693,31 @@ def text_line_field(image, bands=14, min_lines=5, max_shift_ratio=0.08):
 
     # how far each line wanders from its own mean, per band
     samples = []
+    positions_at = np.arange(bands)
     for positions in lines:
         indexes = sorted(positions)
         values = np.array([positions[index] for index in indexes])
         shift = values - values.mean()
-        full = np.interp(np.arange(bands), indexes, shift)
-        samples.append((values.mean(), full))
+        # a page bends smoothly; a fit through the bands says so, and stops a
+        # single stray reading from rippling through the result
+        fit = np.polyfit(np.array(indexes, dtype=np.float64), shift, 2)
+        full = np.polyval(fit, positions_at)
+        samples.append((values.mean(), full - full.mean()))
     samples.sort(key=lambda item: item[0])
 
     line_y = np.array([item[0] for item in samples])
     shifts = np.array([item[1] for item in samples])      # (lines, bands)
+
+    # the lines of a page bend together: one that disagrees with the rest was
+    # not followed, it was confused with its neighbour
+    agreed = np.median(shifts, axis=0)
+    apart = np.max(np.abs(shifts - agreed), axis=1)
+    keep = apart <= max(NO_BEND, 0.5 * spacing)
+    if np.count_nonzero(keep) < min_lines:
+        return None
+    line_y = line_y[keep]
+    shifts = shifts[keep]
+
     limit = max_shift_ratio * height
     if np.max(np.abs(shifts)) > limit:
         return None                                       # implausible: not text lines
@@ -709,7 +730,7 @@ def text_line_field(image, bands=14, min_lines=5, max_shift_ratio=0.08):
     # between the lines
     columns = np.arange(width)
     per_line = np.stack([np.interp(columns, centres, shifts[index])
-                         for index in range(len(samples))])   # (lines, width)
+                         for index in range(len(shifts))])    # (lines, width)
     rows = np.arange(height)
     field = np.empty((height, width), np.float32)
     for column in range(width):

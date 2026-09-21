@@ -805,7 +805,18 @@ export function textLineField(image, { bands = 14, minLines = 5, maxShiftRatio =
 
     const middle = bands >> 1;
     if (peaks[middle].length < minLines) return null;
-    const tolerance = Math.max(4, height * 0.02);
+
+    // How far a line may move from one band to the next.  Never as far as the
+    // next line: a rule that stops short - a short row in a table, the end of
+    // a paragraph - leaves the walk with its neighbour as the nearest peak,
+    // and stepping onto it reports a whole line spacing as a bend.  That is
+    // what turns a straight page wavy.
+    const gaps = [];
+    for (let index = 1; index < peaks[middle].length; index += 1) {
+      gaps.push(peaks[middle][index] - peaks[middle][index - 1]);
+    }
+    const spacing = medianOf(gaps) || height;
+    const tolerance = Math.max(2, Math.min(height * 0.02, 0.35 * spacing));
 
     const lines = [];
     for (const seed of peaks[middle]) {
@@ -831,18 +842,45 @@ export function textLineField(image, { bands = 14, minLines = 5, maxShiftRatio =
     }
     if (lines.length < minLines) return null;
 
-    const samples = lines.map((positions) => {
+    const grid = [];
+    for (let index = 0; index < bands; index += 1) grid.push(index);
+    const tracked = lines.map((positions) => {
       const indexes = [...positions.keys()].sort((a, b) => a - b);
       const values = indexes.map((index) => positions.get(index));
       const mean = values.reduce((total, value) => total + value, 0) / values.length;
       const shift = values.map((value) => value - mean);
+      // a page bends smoothly; a fit through the bands says so, and stops a
+      // single stray reading from rippling through the result
+      const fit = polyfit2(indexes, shift);
       const all = new Float64Array(bands);
-      const grid = [];
-      for (let index = 0; index < bands; index += 1) grid.push(index);
-      const filled = interpolate(grid, indexes, shift);
-      all.set(filled);
+      if (!fit) {
+        all.set(interpolate(grid, indexes, shift));
+      } else {
+        let total = 0;
+        for (let index = 0; index < bands; index += 1) {
+          all[index] = polyval2(fit, index);
+          total += all[index];
+        }
+        const centre = total / bands;
+        for (let index = 0; index < bands; index += 1) all[index] -= centre;
+      }
       return { y: mean, shift: all };
     }).sort((a, b) => a.y - b.y);
+
+    // the lines of a page bend together: one that disagrees with the rest was
+    // not followed, it was confused with its neighbour
+    const agreed = new Float64Array(bands);
+    for (let index = 0; index < bands; index += 1) {
+      agreed[index] = medianOf(tracked.map((sample) => sample.shift[index])) || 0;
+    }
+    const samples = tracked.filter((sample) => {
+      let apart = 0;
+      for (let index = 0; index < bands; index += 1) {
+        apart = Math.max(apart, Math.abs(sample.shift[index] - agreed[index]));
+      }
+      return apart <= Math.max(NO_BEND, 0.5 * spacing);
+    });
+    if (samples.length < minLines) return null;
 
     let largest = 0;
     for (const sample of samples) {
@@ -850,8 +888,8 @@ export function textLineField(image, { bands = 14, minLines = 5, maxShiftRatio =
     }
     if (largest > maxShiftRatio * height) return null;   // implausible: not text lines
     // wander of the detected peaks, not a bend worth resampling for: the
-  // border based flattening leaves this much on a page it got right
-  if (largest < NO_BEND) return new Float32Array(height * width);
+    // border based flattening leaves this much on a page it got right
+    if (largest < NO_BEND) return new Float32Array(height * width);
 
     const columns = [];
     for (let column = 0; column < width; column += 1) columns.push(column);

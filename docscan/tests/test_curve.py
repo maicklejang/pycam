@@ -21,6 +21,24 @@ if HAVE_OPENCV:
 RECTANGLE = [[0, 0], [200, 0], [200, 100], [0, 100]]
 
 
+def ruled_page(height=3508, width=2516, spacing=60, count=8, top=0.06, ragged=False, seed=0):
+    """A page of ruled lines near the top, optionally of differing lengths.
+
+    The shape of a table or of the last lines of a paragraph, at the size a
+    phone's own camera produces: it is the ragged ends that used to confuse
+    the line tracking.
+    """
+    generator = np.random.default_rng(seed)
+    page = np.full((height, width, 3), 250, np.uint8)
+    for index in range(count):
+        row = int(height * top) + index * spacing
+        end = width - 120
+        if ragged:
+            end -= int(generator.integers(0, width * 0.55))
+        cv2.line(page, (120, row), (end, row), (40, 40, 40), 4)
+    return page
+
+
 def text_line_wobble(image, columns=24, window=12):
     """Average vertical spread of each text line across the page.
 
@@ -312,6 +330,39 @@ class TestTextLineStraightening(unittest.TestCase):
         self.assertGreater(before, 8.0)
         after, _ = text_line_wobble(straighten_text_lines(bent))
         self.assertLess(after, 0.3 * before,
+                        "{:.1f} px left of {:.1f}".format(after, before))
+
+    def test_lines_that_stop_short_do_not_look_like_a_bend(self):
+        # a table or a paragraph leaves rules of different lengths.  Where a
+        # line stops, the nearest ink in the next band is its neighbour, and
+        # following that reports a whole line spacing as a bend - which is how
+        # a straight page came out wavy and smeared
+        for spacing in (40, 60, 90):
+            page = ruled_page(spacing=spacing, ragged=True)
+            field = text_line_field(page)
+            worst = 0.0 if field is None else float(np.max(np.abs(field)))
+            self.assertLess(worst, 1e-6,
+                            "a straight page was bent by {:.0f} px "
+                            "(lines {} px apart)".format(worst, spacing))
+            self.assertIs(straighten_text_lines(page), page)
+
+    def test_a_ragged_page_that_really_bends_is_still_fixed(self):
+        # the same page, bowed on purpose: tightening the tracking must not
+        # cost the correction it is there for
+        page = ruled_page(spacing=60, ragged=True)
+        height, width = page.shape[:2]
+        columns = np.arange(width, dtype=np.float32)
+        bow = 40.0 * np.sin(np.pi * columns / (width - 1))
+        map_x, map_y = np.meshgrid(columns, np.arange(height, dtype=np.float32))
+        bent = cv2.remap(page, map_x, (map_y + bow[None, :]).astype(np.float32),
+                         cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+        field = text_line_field(bent)
+        self.assertIsNotNone(field, "the bend was not measured at all")
+        measured = float(np.max(np.abs(field)))
+        self.assertGreater(measured, 15.0, "only {:.0f} px of 40 measured".format(measured))
+        before, _ = text_line_wobble(bent, columns=16)
+        after, _ = text_line_wobble(straighten_text_lines(bent), columns=16)
+        self.assertLess(after, 0.35 * before,
                         "{:.1f} px left of {:.1f}".format(after, before))
 
     def test_nonsense_shifts_are_rejected(self):
