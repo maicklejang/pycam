@@ -1,0 +1,134 @@
+name: Deploy mobile viewer
+
+# Publishes the GitHub Pages site of this repository.
+#
+# A repository has exactly one Pages site, so this workflow assembles every
+# app that belongs on it:
+#
+#   /                 the STL/STEP/DXF viewer (mobile/)
+#   /docscan/         the camera document scanner (docscan/web/)
+#   /laserpowemap/    the laser material guide (laserpowemap/)
+#
+# Each app lives on its own branch until that is merged, so any app missing
+# from the working tree is checked out from its branch. That way the site
+# keeps all three no matter which branch this run started from.
+#
+# Only the assembled directory is uploaded, never the repository root: the
+# artifact step resolves symlinks, and debian/pycam.mime in the repository is
+# a dangling one, which makes a whole-repository deployment fail.
+#
+# Requires "Settings -> Pages -> Source" to be set to "GitHub Actions".
+#
+# The github-pages environment only lets the branches listed below deploy, so
+# this runs from master (and the viewer branch). A feature branch that is not
+# on that list fails in one second with a protection-rule error, which is why
+# the laser branch is not a trigger here: merging it to master is what ships
+# the app.
+
+on:
+  push:
+    branches:
+      - master
+      - claude/stl-step-dxf-mobile-app-wvtxta
+    paths:
+      - 'mobile/**'
+      - 'docscan/web/**'
+      - 'laserpowemap/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the mobile viewer (until it lands on master)
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: claude/stl-step-dxf-mobile-app-wvtxta
+          path: .viewer-src
+
+      - name: Fetch the document scanner (until it lands on master)
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: claude/camera-document-scan-app-69aebj
+          path: .docscan-src
+
+      - name: Fetch the laser material guide (until it lands on master)
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: claude/laser-material-specs-app-rw6bma
+          path: .laser-src
+
+      - name: Assemble the site
+        run: |
+          set -eu
+          rm -rf _site
+          mkdir -p _site
+
+          if [ -d mobile ]; then
+            viewer=mobile
+          elif [ -d .viewer-src/mobile ]; then
+            viewer=.viewer-src/mobile
+          else
+            viewer=
+          fi
+          if [ -n "$viewer" ]; then
+            cp -r "$viewer/." _site/
+          fi
+
+          if [ -d docscan/web ]; then
+            scanner=docscan/web
+          elif [ -d .docscan-src/docscan/web ]; then
+            scanner=.docscan-src/docscan/web
+          else
+            scanner=
+          fi
+          if [ -n "$scanner" ]; then
+            sh "$scanner/fetch-opencv.sh"
+            mkdir -p _site/docscan
+            cp -r "$scanner/." _site/docscan/
+            rm -rf _site/docscan/tests
+          fi
+
+          if [ -d laserpowemap ]; then
+            laser=laserpowemap
+          elif [ -d .laser-src/laserpowemap ]; then
+            laser=.laser-src/laserpowemap
+          else
+            laser=
+          fi
+          if [ -n "$laser" ]; then
+            mkdir -p _site/laserpowemap
+            cp -r "$laser/." _site/laserpowemap/
+            rm -rf _site/laserpowemap/tests _site/laserpowemap/tools _site/laserpowemap/dist
+          fi
+
+          find _site -type l -print -delete
+          ls _site
+          du -sh _site
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,23 @@
+{
+  "name": "레이저 소재 가이드",
+  "short_name": "레이저 가이드",
+  "description": "소재별 레이저 절단·조각 파워와 속도를 내 장비 출력에 맞춰 계산하고, 재료를 바로 주문할 수 있는 앱",
+  "lang": "ko",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e1117",
+  "theme_color": "#12151c",
+  "categories": ["productivity", "utilities", "shopping"],
+  "icons": [
+    { "src": "icons/favicon-64.png", "sizes": "64x64", "type": "image/png" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "설정 계산기", "url": "./#calc" },
+    { "name": "재료 주문", "url": "./#shop" }
+  ]
+}
