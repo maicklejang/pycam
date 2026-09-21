@@ -29,7 +29,7 @@
 ## 2. 실행
 
 ```bash
-cd docs/laserpowemap
+cd laserpowemap
 python3 -m http.server 8000
 # 브라우저에서 http://localhost:8000
 ```
@@ -53,8 +53,8 @@ CSS·JS·아이콘이 모두 들어 있어 **더블클릭하면 바로 열리고
 ## 4. 배포 (고객에게 나눠줄 주소 만들기)
 
 * **GitHub Pages** — 저장소 Settings → Pages → Source 를 "Deploy from a branch" 로 두고
-  브랜치 선택 + 폴더는 **/docs** → 주소는 `https://<사용자>.github.io/pycam/laserpowemap/`
-* **Netlify / Vercel** — `docs/laserpowemap` 폴더를 그대로 끌어다 놓기
+  브랜치는 `master`, 폴더는 **/ (root)** → 주소는 `https://<사용자>.github.io/pycam/laserpowemap/`
+* **Netlify / Vercel** — `laserpowemap` 폴더를 그대로 끌어다 놓기
 * **직접 운영하는 웹서버** — 폴더를 통째로 업로드
 
 > HTTPS(또는 localhost)에서만 "홈 화면에 설치"와 오프라인 캐시가 동작합니다.
@@ -111,7 +111,7 @@ CSS·JS·아이콘이 모두 들어 있어 **더블클릭하면 바로 열리고
 ## 7. 테스트
 
 ```bash
-node --test docs/laserpowemap/tests/engine.test.mjs
+node --test laserpowemap/tests/engine.test.mjs
 ```
 
 계산 범위·장비별 절단 한계·파이버 프리셋·데이터 무결성·상품 연결·G코드 문법을 검사합니다 (17개).
@@ -119,7 +119,7 @@ node --test docs/laserpowemap/tests/engine.test.mjs
 ## 8. 파일 구성
 
 ```
-docs/laserpowemap/
+laserpowemap/
 ├── index.html              앱 껍데기
 ├── manifest.webmanifest    설치 정보(이름·아이콘·시작 주소)
 ├── sw.js                   오프라인 캐시
