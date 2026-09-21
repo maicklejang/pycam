@@ -4,7 +4,7 @@
  * cached as well - after the first visit the app starts without any network.
  */
 
-const CACHE = "docscan-v4";
+const CACHE = "docscan-v5";
 
 const SHELL = [
   "./",
