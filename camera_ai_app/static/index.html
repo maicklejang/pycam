@@ -84,7 +84,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const video = $("video"), canvas = $("canvas"), chat = $("chat");
-const AUTO_INTERVAL_MS = 6000;   // how often auto-analysis sends a frame
+const AUTO_INTERVAL_MS = 10000;  // auto-analysis period (free tiers allow ~10 requests/min)
 const FRAME_WIDTH = 640;         // resize frames before upload
 
 let facing = "environment";      // rear camera by default

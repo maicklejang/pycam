@@ -6,9 +6,9 @@ services:
     rootDir: camera_ai_app
     plan: free
     envVars:
-      - key: OPENAI_API_KEY
+      - key: AI_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
         sync: false
       - key: APP_PASSWORD
         sync: false
-      - key: OPENAI_MODEL
-        value: gpt-4o-mini
