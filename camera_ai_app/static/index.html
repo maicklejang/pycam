@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Camera AI</title>
+<style>
+  :root { --bg: #000; --panel: rgba(20,20,24,.78); --fg: #f4f4f5; --muted: #a1a1aa;
+          --accent: #3b82f6; --user: #2563eb; --ai: #27272a; --danger: #ef4444; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+               font-family: -apple-system, system-ui, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #top { position: relative; display: flex; gap: 8px; justify-content: space-between;
+         padding: calc(env(safe-area-inset-top) + 10px) 12px 10px; }
+  .pill { background: var(--panel); border: 0; color: var(--fg); border-radius: 999px;
+          padding: 9px 14px; font-size: 14px; backdrop-filter: blur(8px); }
+  .pill.on { background: var(--accent); }
+  #status { font-size: 13px; color: var(--muted); align-self: center; }
+  #chat { position: relative; margin-top: auto; max-height: 45%; overflow-y: auto;
+          padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .msg { max-width: 85%; padding: 8px 12px; border-radius: 16px; font-size: 15px;
+         line-height: 1.4; white-space: pre-wrap; backdrop-filter: blur(8px); }
+  .msg.user { align-self: flex-end; background: var(--user); }
+  .msg.ai { align-self: flex-start; background: var(--panel); }
+  .msg.err { align-self: center; background: var(--danger); font-size: 13px; }
+  #bar { position: relative; display: flex; gap: 8px; align-items: center;
+         padding: 10px 12px calc(env(safe-area-inset-bottom) + 12px); background: var(--panel); }
+  #text { flex: 1; min-width: 0; border: 0; border-radius: 999px; padding: 12px 14px;
+          font-size: 16px; background: #18181b; color: var(--fg); }
+  .round { width: 46px; height: 46px; flex: none; border-radius: 50%; border: 0;
+           background: #3f3f46; color: var(--fg); font-size: 20px; }
+  .round.rec { background: var(--danger); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .6; } }
+  #start { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 16px;
+           align-items: center; justify-content: center; background: #000; z-index: 10;
+           padding: 24px; text-align: center; }
+  #start button { font-size: 18px; padding: 14px 28px; border-radius: 999px; border: 0;
+                  background: var(--accent); color: #fff; }
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas" hidden></canvas>
+
+  <div id="top">
+    <button id="autoBtn" class="pill">자동분석 OFF</button>
+    <span id="status"></span>
+    <div style="display:flex;gap:8px">
+      <button id="ttsBtn" class="pill on">🔊</button>
+      <button id="flipBtn" class="pill">🔄</button>
+    </div>
+  </div>
+
+  <div id="chat"></div>
+
+  <form id="bar">
+    <button type="button" id="micBtn" class="round" aria-label="음성 입력">🎤</button>
+    <input id="text" placeholder="카메라에 보이는 것에 대해 물어보세요" autocomplete="off">
+    <button type="submit" class="round" aria-label="보내기">➤</button>
+  </form>
+
+  <div id="start">
+    <h2 style="margin:0">📷 Camera AI</h2>
+    <p style="color:var(--muted);margin:0">카메라로 보면서 AI와 대화합니다</p>
+    <button id="startBtn">시작하기</button>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const video = $("video"), canvas = $("canvas"), chat = $("chat");
+const AUTO_INTERVAL_MS = 6000;   // how often auto-analysis sends a frame
+const FRAME_WIDTH = 640;         // resize frames before upload
+
+let facing = "environment";      // rear camera by default
+let stream = null, history = [], busy = false;
+let autoTimer = null, ttsOn = true, recognizer = null;
+
+async function startCamera() {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false,
+  });
+  video.srcObject = stream;
+  video.style.transform = facing === "user" ? "scaleX(-1)" : "";
+}
+
+function grabFrame() {
+  const scale = FRAME_WIDTH / video.videoWidth;
+  canvas.width = FRAME_WIDTH;
+  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.7);
+}
+
+function addMsg(cls, text) {
+  const el = document.createElement("div");
+  el.className = "msg " + cls;
+  el.textContent = text;
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function speak(text) {
+  if (!ttsOn || !("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "ko-KR";
+  speechSynthesis.speak(u);
+}
+
+async function ask(message) {
+  if (busy || !video.videoWidth) return;
+  busy = true;
+  $("status").textContent = "분석 중…";
+  if (message) addMsg("user", message);
+  try {
+    const res = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: grabFrame(), message, history }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    addMsg("ai", data.reply);
+    history.push({ role: "user", content: message || "(자동 분석)" },
+                 { role: "assistant", content: data.reply });
+    history = history.slice(-20);
+    speak(data.reply);
+  } catch (e) {
+    addMsg("err", "오류: " + e.message);
+  } finally {
+    busy = false;
+    $("status").textContent = "";
+  }
+}
+
+// --- controls ---
+$("startBtn").onclick = async () => {
+  try {
+    await startCamera();
+    $("start").remove();
+    speak("");   // unlock speech synthesis on iOS with a user gesture
+  } catch (e) {
+    alert("카메라를 열 수 없습니다. HTTPS로 접속했는지, 권한을 허용했는지 확인하세요.\n" + e.message);
+  }
+};
+
+$("bar").onsubmit = (e) => {
+  e.preventDefault();
+  const text = $("text").value.trim();
+  if (!text) return;
+  $("text").value = "";
+  ask(text);
+};
+
+$("autoBtn").onclick = () => {
+  if (autoTimer) {
+    clearInterval(autoTimer);
+    autoTimer = null;
+  } else {
+    ask(null);
+    autoTimer = setInterval(() => ask(null), AUTO_INTERVAL_MS);
+  }
+  $("autoBtn").classList.toggle("on", !!autoTimer);
+  $("autoBtn").textContent = autoTimer ? "자동분석 ON" : "자동분석 OFF";
+};
+
+$("ttsBtn").onclick = () => {
+  ttsOn = !ttsOn;
+  if (!ttsOn) speechSynthesis.cancel();
+  $("ttsBtn").classList.toggle("on", ttsOn);
+  $("ttsBtn").textContent = ttsOn ? "🔊" : "🔇";
+};
+
+$("flipBtn").onclick = async () => {
+  facing = facing === "environment" ? "user" : "environment";
+  try { await startCamera(); } catch (e) { addMsg("err", e.message); }
+};
+
+// --- voice input (Web Speech API; Chrome/Android, Safari/iOS 14.5+) ---
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SR) {
+  $("micBtn").hidden = true;
+} else {
+  $("micBtn").onclick = () => {
+    if (recognizer) { recognizer.stop(); return; }
+    speechSynthesis.cancel();
+    recognizer = new SR();
+    recognizer.lang = "ko-KR";
+    recognizer.interimResults = false;
+    recognizer.onresult = (e) => ask(e.results[0][0].transcript);
+    recognizer.onerror = (e) => addMsg("err", "음성 인식 오류: " + e.error);
+    recognizer.onend = () => { recognizer = null; $("micBtn").classList.remove("rec"); };
+    recognizer.start();
+    $("micBtn").classList.add("rec");
+  };
+}
+</script>
+</body>
+</html>
