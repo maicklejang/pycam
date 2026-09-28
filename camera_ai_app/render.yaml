@@ -1,0 +1,14 @@
+# One-click deploy on Render (https://render.com) -> free HTTPS address.
+services:
+  - type: web
+    name: camera-ai
+    runtime: docker
+    rootDir: camera_ai_app
+    plan: free
+    envVars:
+      - key: AI_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
