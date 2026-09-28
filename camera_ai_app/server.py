@@ -6,11 +6,12 @@ returns the answer, which the browser displays and reads aloud.
 """
 
 import os
+import secrets
 from pathlib import Path
 from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from openai import AsyncOpenAI
@@ -21,6 +22,9 @@ load_dotenv()
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 MAX_HISTORY = int(os.getenv("MAX_HISTORY", "10"))
 STATIC_DIR = Path(__file__).parent / "static"
+# When set, the app asks for this password before calling OpenAI, so a
+# publicly deployed server cannot be used by strangers on your API key.
+APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 
 SYSTEM_PROMPT = os.getenv(
     "SYSTEM_PROMPT",
@@ -55,7 +59,11 @@ class AnalyzeResponse(BaseModel):
 
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
-async def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
+async def analyze(req: AnalyzeRequest,
+                  x_app_password: str = Header("")) -> AnalyzeResponse:
+    if APP_PASSWORD and not secrets.compare_digest(
+            x_app_password.encode(), APP_PASSWORD.encode()):
+        raise HTTPException(401, "비밀번호가 틀렸습니다")
     if not req.image.startswith("data:image/"):
         raise HTTPException(400, "image must be a data URL")
 
@@ -83,6 +91,19 @@ async def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/manifest.webmanifest")
+async def manifest() -> FileResponse:
+    return FileResponse(STATIC_DIR / "manifest.webmanifest",
+                        media_type="application/manifest+json")
+
+
+@app.get("/sw.js")
+async def service_worker() -> FileResponse:
+    # Served from the root so the service worker controls the whole app.
+    return FileResponse(STATIC_DIR / "sw.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
