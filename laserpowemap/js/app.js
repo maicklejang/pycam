@@ -981,17 +981,78 @@
     });
   }
 
-  /* ============================ 설치(PWA) ============================ */
+  /* ============================ 폰에 설치(PWA) ============================ */
   let deferredPrompt = null;
+
+  /* 이미 홈 화면 앱으로 실행 중인가 */
+  function isInstalled() {
+    try {
+      return window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+    } catch (e) { return false; }
+  }
+  function isIOS() {
+    return /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+  }
+
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     deferredPrompt = e;
+    showInstallBar();
     if (state.view === "safety") renderSafety();
   });
+  window.addEventListener("appinstalled", () => {
+    deferredPrompt = null;
+    hideInstallBar();
+    toast("홈 화면에 설치되었습니다");
+  });
+
   function doInstall() {
-    if (!deferredPrompt) { toast("브라우저 메뉴에서 '홈 화면에 추가'를 눌러주세요"); return; }
-    deferredPrompt.prompt();
-    deferredPrompt.userChoice.then(() => { deferredPrompt = null; });
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(() => { deferredPrompt = null; hideInstallBar(); });
+      return;
+    }
+    /* 아이폰 사파리에는 설치 버튼이 없어서 직접 안내한다 */
+    openSheet("홈 화면에 설치하기", isIOS() ? `
+      <p class="small muted" style="margin-top:0">아이폰·아이패드는 사파리에서만 설치됩니다.</p>
+      <ol class="small" style="padding-left:18px;line-height:2">
+        <li>화면 아래 <b>공유 버튼</b>(네모에 위 화살표)을 누릅니다.</li>
+        <li>목록을 내려 <b>홈 화면에 추가</b>를 누릅니다.</li>
+        <li>오른쪽 위 <b>추가</b>를 누르면 끝입니다.</li>
+      </ol>
+      <div class="note">크롬·네이버·카카오 앱 안에서 열었다면 설치가 안 됩니다. 사파리로 여세요.</div>` : `
+      <ol class="small" style="padding-left:18px;line-height:2">
+        <li>브라우저 오른쪽 위 <b>⋮ 메뉴</b>를 누릅니다.</li>
+        <li><b>앱 설치</b> 또는 <b>홈 화면에 추가</b>를 누릅니다.</li>
+      </ol>
+      <div class="note">카카오톡·네이버 앱 안의 브라우저에서는 설치가 안 됩니다. 크롬으로 여세요.</div>`);
+  }
+
+  /* 첫 화면 아래에 뜨는 설치 안내 (닫으면 다시 뜨지 않는다) */
+  function showInstallBar() {
+    if (document.getElementById("installBar")) return;
+    if (isInstalled() || !canDownload) return;              // 설치됨 / 임베드 환경
+    if (location.protocol === "file:") return;              // 파일로 연 경우
+    if (Store.get("installBarClosed", false)) return;
+
+    const bar = document.createElement("div");
+    bar.className = "install-bar";
+    bar.id = "installBar";
+    bar.innerHTML = `
+      <span class="ib-icon"></span>
+      <span class="ib-text"><b>폰에 앱으로 설치</b><br><small>인터넷 없이도 설정값을 볼 수 있습니다</small></span>
+      <button class="ib-go" id="ibGo">설치</button>
+      <button class="ib-x" id="ibClose" aria-label="닫기">✕</button>`;
+    document.body.appendChild(bar);
+    $("#ibGo", bar).addEventListener("click", doInstall);
+    $("#ibClose", bar).addEventListener("click", () => {
+      Store.set("installBarClosed", true);
+      hideInstallBar();
+    });
+  }
+  function hideInstallBar() {
+    const bar = document.getElementById("installBar");
+    if (bar) bar.remove();
   }
 
   /* ============================ 시작 ============================ */
@@ -1008,6 +1069,7 @@
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
     $$("#tabbar button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
     setView("map");
+    setTimeout(showInstallBar, 1200);
     /*
      * 오프라인 캐시는 이 앱이 자기 주소에서 단독으로 열릴 때만 쓴다.
      * 미리보기·임베드(iframe)처럼 주소를 다른 페이지와 공유하는 환경에서 등록하면
