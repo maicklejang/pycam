@@ -24,19 +24,17 @@ a{color:var(--accent2)}
   border-bottom:1px solid var(--line);
 }
 .brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;padding:4px}
-.brand-mark{
-  width:22px;height:22px;border-radius:7px;flex:0 0 auto;
-  background:linear-gradient(135deg,var(--accent2),var(--accent));
-  box-shadow:0 0 12px rgba(255,107,44,.5);
-}
-.brand-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38vw}
+.brand-mark{height:19px;width:auto;flex:0 0 auto;display:block}
+.brand-logo{display:block;width:150px;max-width:55%;height:auto;margin:0 auto 10px}
+.brand-logo.sm{width:112px;margin:0 0 8px}
+.brand-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:32vw}
 .topbar .machine-chip{margin-left:auto}
 .chip{
   background:var(--card2);border:1px solid var(--line);border-radius:999px;
   padding:6px 12px;font-size:13px;font-weight:600;white-space:nowrap;
 }
 .chip.on{background:var(--accent);border-color:var(--accent);color:#1a0d05}
-.icon-btn{position:relative;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:12px;font-weight:600}
+.icon-btn{position:relative;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:12px;font-weight:600;white-space:nowrap}
 .badge{
   position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;border-radius:9px;
   background:var(--accent);color:#1a0d05;font-size:11px;font-weight:800;
@@ -219,9 +217,8 @@ td.x{color:var(--dim)}
   animation:up .25s ease-out;
 }
 .install-bar .ib-icon{
-  width:30px;height:30px;border-radius:9px;flex:0 0 auto;
-  background:linear-gradient(135deg,var(--accent2),var(--accent));
-  box-shadow:0 0 12px rgba(255,107,44,.5);
+  width:34px;height:34px;border-radius:9px;flex:0 0 auto;
+  background:#fff;object-fit:contain;
 }
 .install-bar .ib-text{flex:1;font-size:13px;line-height:1.35}
 .install-bar .ib-text small{color:var(--muted);font-size:11.5px}

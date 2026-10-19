@@ -265,8 +265,9 @@
         <button data-go="log"><b>내 기록</b><span class="spacer"></span><span class="small muted">저장한 설정</span></button>
         <button data-go="safety"><b>안전 · 문의</b><span class="spacer"></span><span class="small muted">금지 소재</span></button>
       </div>
-      <div class="card small muted" style="margin-top:12px">
-        ${esc(SHOP_CONFIG.seller)} · ${esc(SHOP_CONFIG.phone)}<br>레이저 소재 가이드 v${esc(APP_VERSION)}
+      <div class="card small muted" style="margin-top:12px;text-align:center">
+        <img class="brand-logo" src="img/logo.png" alt="${esc(SHOP_CONFIG.seller)}">
+        ${esc(SHOP_CONFIG.phone)}<br>${esc(SHOP_CONFIG.brand)} v${esc(APP_VERSION)}
       </div>`;
     $$("button[data-go]", v).forEach((b) => b.addEventListener("click", () => setView(b.dataset.go)));
   }
@@ -594,7 +595,7 @@
     const v = $("#view-shop");
     v.innerHTML = `
       <div class="card">
-        <b>${esc(SHOP_CONFIG.seller)}</b>
+        <img class="brand-logo sm" src="img/logo.png" alt="${esc(SHOP_CONFIG.seller)}">
         <p class="small muted" style="margin:6px 0 0">
           ${won(SHOP_CONFIG.freeShippingOver)} 이상 무료배송 · 그 미만 배송비 ${won(SHOP_CONFIG.shippingFee)}<br>
           주문은 장바구니에 담은 뒤 주문서를 보내주시면 확인 후 연락드립니다.</p>
@@ -960,8 +961,8 @@
       </div>
       <div class="card">
         <h3>문의</h3>
+        <img class="brand-logo sm" src="img/logo.png" alt="${esc(SHOP_CONFIG.seller)}">
         <p class="small" style="margin:6px 0 10px">
-          ${esc(SHOP_CONFIG.seller)}<br>
           <span class="muted">전화</span> ${esc(SHOP_CONFIG.phone)}<br>
           <span class="muted">메일</span> ${esc(SHOP_CONFIG.email)}
         </p>
@@ -971,7 +972,7 @@
         </div>
       </div>
       <div class="card small muted">
-        레이저 소재 가이드 v${esc(APP_VERSION)} · 표시값은 시작값이며 실제 결과는 렌즈·초점·소재 편차에 따라 달라집니다.
+        ${esc(SHOP_CONFIG.brand)} v${esc(APP_VERSION)} · 표시값은 시작값이며 실제 결과는 렌즈·초점·소재 편차에 따라 달라집니다.
         <div class="btn-row"><button class="btn ghost" id="resetAll">앱 데이터 초기화</button></div>
       </div>`;
     $$("button[data-alt2]", v).forEach((b) => b.addEventListener("click", () => {
@@ -1046,7 +1047,7 @@
     bar.className = "install-bar";
     bar.id = "installBar";
     bar.innerHTML = `
-      <span class="ib-icon"></span>
+      <img class="ib-icon" src="icons/icon-192.png" alt="">
       <span class="ib-text"><b>폰에 앱으로 설치</b><br><small>인터넷 없이도 설정값을 볼 수 있습니다</small></span>
       <button class="ib-go" id="ibGo">설치</button>
       <button class="ib-x" id="ibClose" aria-label="닫기">✕</button>`;
@@ -1064,7 +1065,7 @@
 
   /* ============================ 시작 ============================ */
   function init() {
-    $("#brandText").textContent = SHOP_CONFIG.brand;
+    $("#brandText").textContent = SHOP_CONFIG.brandShort || SHOP_CONFIG.brand;
     document.title = SHOP_CONFIG.brand;
     syncMachineChip();
     syncCart();

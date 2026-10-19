@@ -42,12 +42,16 @@ def main():
             "<script>\n%s\n</script>" % read(src),
         )
 
-    # 아이콘은 data URI 로, 설치 관련 링크는 제거 (파일 단독 실행용)
-    icon = data_uri("icons/favicon-64.png")
-    html = html.replace('<link rel="icon" href="icons/icon-192.png">', '<link rel="icon" href="%s">' % icon)
+    # 아이콘 링크를 먼저 바꾼다 (아래 이미지 치환이 같은 경로를 건드리기 때문)
+    html = html.replace('<link rel="icon" href="icons/icon-192.png">',
+                        '<link rel="icon" href="%s">' % data_uri("icons/favicon-64.png"))
     html = html.replace('<link rel="apple-touch-icon" href="icons/icon-192.png">',
                         '<link rel="apple-touch-icon" href="%s">' % data_uri("icons/icon-192.png"))
     html = html.replace('<link rel="manifest" href="manifest.webmanifest">', "")
+
+    # 로고·아이콘은 data URI 로 (파일 하나만 열어도 보이게)
+    for rel in ("img/logo.png", "img/mark.png", "icons/icon-192.png"):
+        html = html.replace('"%s"' % rel, '"%s"' % data_uri(rel))
 
     # 파일 단독 실행에서는 서비스워커를 등록하지 않는다
     html = html.replace('if ("serviceWorker" in navigator) {', 'if ("serviceWorker" in navigator && location.protocol !== "file:") {')

@@ -1,5 +1,5 @@
 /* 오프라인 캐시 — 파일을 수정하면 CACHE 버전을 올리세요. */
-const CACHE = "laser-guide-v1.1.0";
+const CACHE = "laser-guide-v1.2.0";
 const ASSETS = [
   "./",
   "./index.html",
@@ -12,6 +12,8 @@ const ASSETS = [
   "./js/testgrid.js",
   "./js/app.js",
   "./manifest.webmanifest",
+  "./img/logo.png",
+  "./img/mark.png",
   "./icons/favicon-64.png",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
