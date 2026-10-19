@@ -147,7 +147,7 @@
       ${op === "cut" ? cutTables(machine) : `<div class="card map-card">${engraveTable(machine)}</div>`}
       <div class="card small muted">
         ${op === "cut"
-          ? "칸의 윗줄은 <b>출력 %</b>, 아랫줄은 <b>속도 mm/min</b>, x2 는 <b>패스 수</b>입니다. 회색 칸은 이 장비 출력으로 관통되지 않는 두께입니다."
+          ? "칸의 윗줄은 <b>출력 %</b>, 아랫줄은 <b>속도 mm/s</b>, x2 는 <b>패스 수</b>입니다. 회색 칸은 이 장비 출력으로 관통되지 않는 두께입니다."
           : isFiber
             ? "칸은 <b>출력 % / 속도 mm/s / 주파수</b> 입니다. 해치 간격과 소요 시간은 칸을 누르면 나옵니다."
             : "기본 해상도 기준값입니다. DPI 를 바꾸려면 칸을 눌러 상세로 들어가세요."}
@@ -192,7 +192,7 @@
             const r = LaserEngine.calcCut(m, t, machine);
             if (!r.ok) return `<td class="no">-</td>`;
             return `<td data-cell="${m.id}|${t}" class="${r.level === "ok" ? "" : "hard"}">
-              <div class="cell"><b>${r.powerPct}%</b><span>${r.speedMmMin}</span>${r.passes > 1 ? `<span class="p">x${r.passes}</span>` : ""}</div>
+              <div class="cell"><b>${r.powerPct}%</b><span>${r.speedMmS}</span>${r.passes > 1 ? `<span class="p">x${r.passes}</span>` : ""}</div>
             </td>`;
           }).join(""))}</tbody>
         </table></div>
@@ -206,14 +206,14 @@
     if (!list.length) return `<p class="muted small">이 장비로 조각할 수 있는 소재가 없습니다.</p>`;
     const head = isFiber
       ? ["출력", "속도 mm/s", "주파수", "패스"]
-      : ["출력", "속도 mm/min", "DPI", "100x100 소요"];
+      : ["출력", "속도 mm/s", "DPI", "100x100 소요"];
     return `<div class="map-wrap"><table class="map">
       <thead><tr><th class="mat">소재</th>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
       <tbody>${mapRows(list, (m) => {
         const r = LaserEngine.calcEngrave(m, machine);
         const cells = isFiber
           ? [r.powerPct + "%", r.speedMmS, r.freqKhz + "kHz", "x" + r.passes]
-          : [r.powerPct + "%", r.speedMmMin, r.dpi, fmtSec(r.secPer100mm2)];
+          : [r.powerPct + "%", r.speedMmS, r.dpi, fmtSec(r.secPer100mm2)];
         return cells.map((c, i) => `<td data-cell="${m.id}|" class="${i === 0 ? "lead" : ""}">${esc(c)}</td>`).join("");
       })}</tbody></table></div>`;
   }
@@ -226,13 +226,13 @@
     const product = PRODUCTS.find((p) => p.materialId === mat.id);
     const isFiber = machine.type === "fiber";
     const rows = op === "cut"
-      ? [["출력", r.powerPct + " %"], ["속도", r.speedMmMin + " mm/min (" + r.speedMmS + " mm/s)"],
+      ? [["출력", r.powerPct + " %"], ["속도", r.speedMmS + " mm/s (" + r.speedMmMin + " mm/min)"],
          ["패스", r.passes + " 회"], ["초점", r.focus], ["에어어시스트", "켜기(권장)"],
          ["커프(절단폭)", r.kerf + " mm"], ["1m 절단 소요", fmtSec(r.secPerMeter)]]
       : isFiber
         ? [["출력", r.powerPct + " %"], ["속도", r.speedMmS + " mm/s"], ["주파수", r.freqKhz + " kHz"],
            ["해치 간격", r.hatchMm + " mm"], ["패스", r.passes + " 회"], ["100x100mm 소요", fmtSec(r.secPer100mm2)]]
-        : [["출력", r.powerPct + " %"], ["속도", r.speedMmMin + " mm/min"], ["해상도", r.dpi + " DPI"],
+        : [["출력", r.powerPct + " %"], ["속도", r.speedMmS + " mm/s"], ["해상도", r.dpi + " DPI"],
            ["라인 간격", r.spacing + " mm"], ["100x100mm 소요", fmtSec(r.secPer100mm2)]];
 
     openSheet(`${mat.name}${thickness ? " " + thickness + "mm" : ""} · ${opLabel(op)}`, `
@@ -284,7 +284,7 @@
       <div class="section-title">직접 입력</div>
       <div class="grid2">
         <label class="field"><span>레이저 광출력 (W)</span><input type="number" id="mWatt" value="${cur.watt}" min="1" max="500" step="0.5"></label>
-        <label class="field"><span>최고 이송속도 (mm/min)</span><input type="number" id="mSpeed" value="${Math.round(cur.maxSpeed * 60)}" min="60" step="60"></label>
+        <label class="field"><span>최고 이송속도 (mm/s)</span><input type="number" id="mSpeed" value="${Math.round(cur.maxSpeed)}" min="1" step="10"></label>
       </div>
       <label class="field"><span>레이저 종류</span>
         <select id="mType">
@@ -305,7 +305,7 @@
       $("#mSave", body).addEventListener("click", () => {
         const type = $("#mType", body).value;
         const watt = Math.max(1, parseFloat($("#mWatt", body).value) || 10);
-        const maxSpeed = Math.max(1, (parseFloat($("#mSpeed", body).value) || 6000) / 60);
+        const maxSpeed = Math.max(1, parseFloat($("#mSpeed", body).value) || 400);
         Store.setMachine({ presetId: "custom", label: `${MACHINE_TYPE_INFO[type].label.split(" ")[0]} ${watt}W`, type, watt, maxSpeed });
         closeSheet(); syncMachineChip(); setView(state.view); toast("장비 설정을 저장했습니다");
       });
@@ -481,7 +481,7 @@
     const isEngrave = r.op === "engrave";
     const isFiber = machine.type === "fiber";
     const meta = isFiber ? [
-      ["속도(mm/min)", r.speedMmMin.toLocaleString("ko-KR")],
+      ["속도(mm/s)", r.speedMmS + " mm/s"],
       ["해치 간격", r.hatchMm + " mm"],
       ["주파수", r.freqKhz + " kHz"],
       ["패스", r.passes + " 회"],
@@ -519,7 +519,7 @@
         <div class="small muted">${esc(machineLabel(machine))} 기준 시작값</div>
         <div class="big-grid">
           <div class="big"><div class="v">${r.powerPct}<small>%</small></div><div class="k">출력</div></div>
-          <div class="big"><div class="v">${isFiber ? r.speedMmS : r.speedMmMin}</div><div class="k">속도 ${isFiber ? "mm/s" : "mm/min"}</div></div>
+          <div class="big"><div class="v">${r.speedMmS}</div><div class="k">속도 mm/s</div></div>
           <div class="big"><div class="v">${r.passes}<small>회</small></div><div class="k">패스</div></div>
         </div>
         <div class="meta">${meta.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>
@@ -554,9 +554,9 @@
     return `<div class="card">
       <div class="section-title" style="margin-top:0">두께별 요약 · ${esc(machineLabel(machine))}</div>
       <table>
-        <tr><th>두께</th><th>출력</th><th>속도(mm/min)</th><th>패스</th></tr>
+        <tr><th>두께</th><th>출력</th><th>속도(mm/s)</th><th>패스</th></tr>
         ${rows.map((r) => r.ok
-          ? `<tr><td>${r.thickness}mm</td><td>${r.powerPct}%</td><td>${r.speedMmMin}</td><td>${r.passes}${r.level === "hard" ? " ⚠" : ""}</td></tr>`
+          ? `<tr><td>${r.thickness}mm</td><td>${r.powerPct}%</td><td>${r.speedMmS}</td><td>${r.passes}${r.level === "hard" ? " ⚠" : ""}</td></tr>`
           : `<tr><td>${r.thickness}mm</td><td colspan="3" class="x">이 장비로는 어려움</td></tr>`).join("")}
       </table>
       <p class="small muted" style="margin-bottom:0">이 장비의 현실적인 절단 한계는 약 <b>${Math.round(maxT * 10) / 10}mm</b>입니다.</p>
@@ -565,7 +565,7 @@
 
   function saveLogSheet(r, mat, machine) {
     openSheet("테스트 기록 저장", `
-      <p class="small muted" style="margin-top:0">${esc(mat.name)} · ${opLabel(r.op)} · 출력 ${r.powerPct}% · ${r.speedMmMin}mm/min · ${r.passes}패스</p>
+      <p class="small muted" style="margin-top:0">${esc(mat.name)} · ${opLabel(r.op)} · 출력 ${r.powerPct}% · ${r.speedMmS}mm/s · ${r.passes}패스</p>
       <label class="field"><span>결과</span>
         <select id="logResult">
           <option value="good">잘 됨 (이 값 그대로 사용)</option>
@@ -574,14 +574,14 @@
         </select>
       </label>
       <label class="field"><span>실제로 사용한 값 / 메모</span>
-        <textarea id="logNote" rows="3" placeholder="예: 속도를 250으로 낮추니 깔끔하게 관통"></textarea>
+        <textarea id="logNote" rows="3" placeholder="예: 속도를 8mm/s 로 낮추니 깔끔하게 관통"></textarea>
       </label>
       <div class="btn-row"><button class="btn primary block" id="logSave">저장</button></div>`, (body) => {
       $("#logSave", body).addEventListener("click", () => {
         Store.addLog({
           material: mat.id, materialName: mat.name, op: r.op, thickness: r.thickness,
           machine: machineLabel(machine),
-          powerPct: r.powerPct, speedMmMin: r.speedMmMin, passes: r.passes,
+          powerPct: r.powerPct, speedMmS: r.speedMmS, passes: r.passes,
           result: $("#logResult", body).value, note: $("#logNote", body).value.trim(),
         });
         closeSheet(); toast("기록에 저장했습니다");
@@ -788,17 +788,24 @@
     });
   }
 
+  /* 예전 기록은 mm/min 으로 저장돼 있다 */
+  function logSpeed(e) {
+    if (e.speedMmS != null) return e.speedMmS;
+    if (e.speedMmMin != null) return Math.round((e.speedMmMin / 60) * 10) / 10;
+    return "-";
+  }
+
   /* ============================ 테스트 그리드 ============================ */
   function renderGrid() {
     const v = $("#view-grid");
     const machine = Store.machine();
     const r = state.lastResult;
     const base = r && r.ok ? r : null;
-    const sMid = base ? base.speedMmMin : 1000;
+    const sMid = base ? base.speedMmS : 15;
     const pMid = base ? base.powerPct : 60;
     const d = {
-      speedFrom: Math.max(30, Math.round(sMid * 0.4 / 10) * 10),
-      speedTo: Math.min(Math.round(machine.maxSpeed * 60), Math.round(sMid * 1.8 / 10) * 10),
+      speedFrom: Math.max(1, Math.round(sMid * 0.4)),
+      speedTo: Math.min(Math.round(machine.maxSpeed), Math.max(2, Math.round(sMid * 1.8))),
       powerFrom: Math.max(5, Math.round(pMid * 0.5)),
       powerTo: Math.min(100, Math.round(pMid * 1.3)),
     };
@@ -807,15 +814,15 @@
         <h3>파워 x 속도 테스트 그리드</h3>
         <p class="small muted" style="margin:6px 0 0">
           새 소재를 받으면 이 G코드를 한 번 돌려보세요. 가장 잘 나온 칸의 값이 그 소재의 정답입니다.
-          ${base ? `현재 계산값(<b>${base.powerPct}% · ${base.speedMmMin}mm/min</b>) 주변으로 범위를 잡아 두었습니다.` : ""}
+          ${base ? `현재 계산값(<b>${base.powerPct}% · ${base.speedMmS}mm/s</b>) 주변으로 범위를 잡아 두었습니다.` : ""}
         </p>
       </div>
       <div class="card">
         <div class="grid2">
           <label class="field"><span>출력 시작 (%)</span><input type="number" id="gPf" value="${d.powerFrom}" min="1" max="100"></label>
           <label class="field"><span>출력 끝 (%)</span><input type="number" id="gPt" value="${d.powerTo}" min="1" max="100"></label>
-          <label class="field"><span>속도 시작 (mm/min)</span><input type="number" id="gSf" value="${d.speedFrom}" min="10" step="10"></label>
-          <label class="field"><span>속도 끝 (mm/min)</span><input type="number" id="gSt" value="${d.speedTo}" min="10" step="10"></label>
+          <label class="field"><span>속도 시작 (mm/s)</span><input type="number" id="gSf" value="${d.speedFrom}" min="1" step="1"></label>
+          <label class="field"><span>속도 끝 (mm/s)</span><input type="number" id="gSt" value="${d.speedTo}" min="1" step="1"></label>
           <label class="field"><span>단계 수 (세로 x 가로)</span><input type="number" id="gSteps" value="5" min="2" max="10"></label>
           <label class="field"><span>칸 크기 (mm)</span><input type="number" id="gCell" value="10" min="3" max="30"></label>
           <label class="field"><span>패스</span><input type="number" id="gPass" value="1" min="1" max="10"></label>
@@ -859,7 +866,7 @@
       <div class="card">
         <div class="section-title" style="margin-top:0">배치 미리보기 · 전체 ${g.width} x ${g.height} mm</div>
         <div class="matrix" style="grid-template-columns:44px repeat(${g.speeds.length},1fr)">${cells.join("")}</div>
-        <p class="small muted">가로 = 속도(mm/min), 세로 = 출력(%). 원점은 왼쪽 아래입니다.</p>
+        <p class="small muted">가로 = 속도(mm/s), 세로 = 출력(%). 원점은 왼쪽 아래입니다.</p>
         <textarea class="gcode-out" id="gText" readonly>${esc(g.gcode)}</textarea>
         <div class="btn-row">
           <button class="btn" id="gCopy">복사</button>
@@ -906,7 +913,7 @@
       : e.result === "adjust" ? `<span class="pill warn">조정 필요</span>` : `<span class="pill bad">실패</span>`;
     return `<div class="log-item">
       <div class="row wrap"><b style="flex:1">${esc(e.materialName)}${e.thickness ? " " + e.thickness + "mm" : ""} · ${opLabel(e.op)}</b>${pill}</div>
-      <div class="small">출력 ${e.powerPct}% · ${e.speedMmMin}mm/min · ${e.passes}패스 <span class="muted">(${esc(e.machine)})</span></div>
+      <div class="small">출력 ${e.powerPct}% · ${logSpeed(e)}mm/s · ${e.passes}패스 <span class="muted">(${esc(e.machine)})</span></div>
       ${e.note ? `<div class="small muted">${esc(e.note)}</div>` : ""}
       <div class="row" style="margin-top:4px">
         <span class="t">${new Date(e.ts).toLocaleString("ko-KR")}</span><span class="spacer"></span>

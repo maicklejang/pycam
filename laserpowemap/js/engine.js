@@ -2,9 +2,14 @@
  * 레이저 설정 계산 엔진
  *
  * 물리 모델
+ *   절단 파워%               = 기준파워% x (두께 / 기준두께)^0.4   (장비 상한까지)
  *   유효 출력      P[W]      = 장비출력 x 파워%
  *   절단 선에너지  E[J/mm]   = k x 두께^exp x 장비계수
  *   절단 속도      v[mm/s]   = 패스수 x P / E
+ *
+ *   파워%가 두께를 따라 올라가는 이유: 실제 작업에서는 얇은 소재일수록 출력을
+ *   낮추고(태움 방지) 두꺼울수록 출력을 올린다. 파워를 고정한 채 속도만
+ *   바꾸면 얇은 소재에서 쓸 수 없는 고속값이 나온다.
  *   조각 면에너지  D[J/mm2]  = density x 장비계수
  *   조각 속도      v[mm/s]   = P / (D x 라인간격)      (라인간격 = 25.4 / DPI)
  *
@@ -26,6 +31,15 @@ const LaserEngine = (function (deps) {
     const m = v * 60;
     return m >= 100 ? Math.round(m / 10) * 10 : Math.round(m / 5) * 5;
   }
+  /* 두께가 두꺼울수록 출력을 올린다 (기준두께에서 기준 파워%) */
+  const POWER_EXP = 0.4;
+  function cutPowerPct(mat, thickness, info) {
+    const base = mat.cut.powerPct.co2 || 70;
+    const tRef = mat.cut.tRef || 3;
+    const scaled = base * Math.pow(thickness / tRef, POWER_EXP);
+    return clamp(Math.round(scaled), info.minPowerPct, info.powerCapPct);
+  }
+
   function getMaterial(id) {
     return MATS.find((m) => m.id === id) || null;
   }
@@ -39,7 +53,7 @@ const LaserEngine = (function (deps) {
     const f = mat.factor[machine.type];
     if (!f) return 0;
     const info = machineInfo(machine);
-    const pct = Math.min(mat.cut.powerPct[machine.type] || 100, info.powerCapPct);
+    const pct = info.powerCapPct;
     const P = (machine.watt * pct) / 100;
     const Emax = (info.maxPasses * P) / info.minSpeed;
     const tEnergy = Math.pow(Emax / (mat.cut.k * f), 1 / mat.cut.exp);
@@ -75,7 +89,7 @@ const LaserEngine = (function (deps) {
     }
 
     const E = mat.cut.k * Math.pow(thickness, mat.cut.exp) * f;
-    let powerPct = Math.min(mat.cut.powerPct[machine.type] || 100, info.powerCapPct);
+    let powerPct = cutPowerPct(mat, thickness, info);
     let P = (machine.watt * powerPct) / 100;
 
     /* 에너지가 아무리 쌓여도 순간 출력이 모자라면 관통되지 않는다 */
