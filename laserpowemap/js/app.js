@@ -226,7 +226,7 @@
     const product = PRODUCTS.find((p) => p.materialId === mat.id);
     const isFiber = machine.type === "fiber";
     const rows = op === "cut"
-      ? [["출력", r.powerPct + " %"], ["속도", r.speedMmS + " mm/s (" + r.speedMmMin + " mm/min)"],
+      ? [["출력", r.powerPct + " %"], ["속도", r.speedMmS + " mm/s"],
          ["패스", r.passes + " 회"], ["초점", r.focus], ["에어어시스트", "켜기(권장)"],
          ["커프(절단폭)", r.kerf + " mm"], ["1m 절단 소요", fmtSec(r.secPerMeter)]]
       : isFiber
