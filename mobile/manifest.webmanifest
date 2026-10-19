@@ -1,0 +1,45 @@
+{
+  "name": "PyCAM Viewer - STL / STEP / DXF",
+  "short_name": "PyCAM Viewer",
+  "description": "Open and inspect STL, STEP and DXF files directly on your phone. Works offline, files never leave the device.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0e1117",
+  "theme_color": "#0e1117",
+  "categories": ["productivity", "utilities", "graphics"],
+  "lang": "ko",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+    {"src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml"}
+  ],
+  "share_target": {
+    "action": "share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "file",
+          "accept": ["model/stl", "application/sla", "application/vnd.ms-pki.stl",
+                     "application/step", "model/step", "application/p21",
+                     "image/vnd.dxf", "application/dxf", "application/octet-stream",
+                     ".stl", ".step", ".stp", ".p21", ".dxf"]
+        }
+      ]
+    }
+  },
+  "file_handlers": [
+    {
+      "action": "./",
+      "accept": {
+        "model/stl": [".stl"],
+        "application/step": [".step", ".stp", ".p21"],
+        "image/vnd.dxf": [".dxf"]
+      }
+    }
+  ]
+}

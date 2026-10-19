@@ -1,0 +1,82 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The web app is the single source of truth; it is copied into the APK assets at
+// build time so that nothing has to be duplicated in the repository.
+def webAppDir = file("${rootProject.projectDir}/../mobile")
+def webAppAssets = layout.buildDirectory.dir("webapp")
+
+tasks.register('syncWebApp', Sync) {
+    description = 'Copies mobile/ into the APK assets'
+    from(webAppDir) {
+        include 'index.html'
+        include 'manifest.webmanifest'
+        include 'sw.js'
+        include 'css/**'
+        include 'js/**'
+        include 'icons/**'
+    }
+    into webAppAssets
+}
+
+// CI passes its run number so every published APK is an upgrade of the last one.
+def buildNumber = (System.getenv("PYCAM_BUILD_NUMBER") ?: "1") as int
+
+android {
+    namespace 'net.sourceforge.pycam.viewer'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "net.sourceforge.pycam.viewer"
+        minSdk 24
+        targetSdk 34
+        versionCode 100 + buildNumber
+        versionName "1.2." + buildNumber
+    }
+
+    /* Gradle's default debug key is generated per machine, so two CI runs produced
+     * two different signatures and Android refused the update with "package
+     * conflicts with an existing package".  This throwaway key is committed on
+     * purpose: it is not a secret and makes no authenticity claim, it just gives
+     * the sideload builds one stable identity so updates install over each other. */
+    signingConfigs {
+        sideload {
+            storeFile file("${rootProject.projectDir}/sideload.keystore")
+            storePassword "android"
+            keyAlias "pycamviewer"
+            keyPassword "android"
+        }
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs = [webAppAssets]
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.sideload
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.sideload
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name == 'preBuild' || task.name.startsWith('merge') && task.name.endsWith('Assets')) {
+        task.dependsOn 'syncWebApp'
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+}

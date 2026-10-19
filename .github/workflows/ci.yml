@@ -34,3 +34,19 @@ jobs:
 
       - run: ls -al
       - run: ls -al ../
+
+  Mobile-viewer-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # The fixtures are checked in; regenerating them proves the generator still works
+      # and that the parsers agree with freshly written files.
+      - run: python3 mobile/tests/make_fixtures.py
+      - run: git diff --exit-code mobile/tests/fixtures
+      - run: node mobile/tests/run_tests.js
