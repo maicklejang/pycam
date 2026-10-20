@@ -53,13 +53,16 @@ test("유효 출력이 모자라면 절단 불가로 안내하고 필요한 장�
   assert.ok(r.maxThickness > 0);
   /* 같은 두께라도 100W 면 잘린다 */
   assert.equal(Engine.calculate({ material: "ply-birch", thickness: 12, machine: co2_100 }).ok, true);
+  assert.equal(Engine.calculate({ material: "ply-birch", thickness: 12, machine: co2_60 }).ok, false, "60W 로 12mm 합판은 뚫리지 않는다");
 });
 
-test("장비별 절단 한계 두께가 경험칙과 맞는다 (40W≈8mm, 60W≈12mm, 100W≈20mm)", () => {
+test("장비별 절단 한계 두께가 경험칙과 맞는다 (40W≈6mm, 60W≈10mm, 100W≈16mm)", () => {
+  /* 현장 경험칙: 자작합판 기준 40W 6mm, 60W 9~10mm, 100W 15~16mm 가 한계다.
+     예전 기대값(8/12/20)은 에너지만 보고 순간 출력을 무시한 값이라 과하게 낙관적이었다. */
   const birch = Engine.getMaterial("ply-birch");
-  assert.ok(Math.abs(Engine.maxCuttableThickness(birch, co2_40) - 8) < 1.5);
-  assert.ok(Math.abs(Engine.maxCuttableThickness(birch, co2_60) - 12) < 1.5);
-  assert.ok(Math.abs(Engine.maxCuttableThickness(birch, co2_100) - 20) < 1.5);
+  assert.ok(Math.abs(Engine.maxCuttableThickness(birch, co2_40) - 6.4) < 1.0);
+  assert.ok(Math.abs(Engine.maxCuttableThickness(birch, co2_60) - 9.6) < 1.0);
+  assert.ok(Math.abs(Engine.maxCuttableThickness(birch, co2_100) - 16) < 1.5);
 });
 
 test("절단 한계 이하 두께는 모두 절단 가능으로 나온다", () => {
@@ -206,4 +209,34 @@ test("테스트 그리드 G코드가 GRBL 문법을 지킨다", () => {
   for (const line of g.gcode.split("\n")) {
     if (line.startsWith("G1")) assert.match(line, /F\d+(\.\d+)? S\d+/);
   }
+});
+
+test("두께가 늘면 출력 %가 따라 올라간다 (속도만으로 때우지 않는다)", () => {
+  const thin = Engine.calculate({ material: "ply-birch", thickness: 2, machine: co2_60 });
+  const mid = Engine.calculate({ material: "ply-birch", thickness: 4, machine: co2_60 });
+  assert.ok(thin.powerPct < mid.powerPct, `2mm ${thin.powerPct}% < 4mm ${mid.powerPct}%`);
+  assert.ok(mid.powerPct <= MACHINE_TYPE_INFO.co2.powerCapPct);
+});
+
+test("얇고 연한 소재는 저출력으로 나온다 (종이를 70%로 태우지 않는다)", () => {
+  const r = Engine.calculate({ material: "paper", thickness: 0.3, machine: co2_60 });
+  assert.equal(r.ok, true);
+  assert.ok(r.powerPct <= 25, `종이 출력 ${r.powerPct}%`);
+  assert.ok(r.speedMmS <= 250, `종이 속도 ${r.speedMmS}mm/s`);
+});
+
+test("절단 속도는 장비 최고 이송속도를 넘지 않는다", () => {
+  for (const mat of MATERIALS.filter((m) => m.cut)) {
+    for (const m of [co2_40, co2_60, co2_100]) {
+      for (const t of mat.thicknesses) {
+        const r = Engine.calculate({ material: mat.id, thickness: t, machine: m });
+        if (r.ok) assert.ok(r.speedMmS <= m.maxSpeed, `${mat.id} ${t}mm ${r.speedMmS}`);
+      }
+    }
+  }
+});
+
+test("mm/s 와 mm/min 값이 서로 일치한다", () => {
+  const r = Engine.calculate({ material: "acrylic-cast", thickness: 3, machine: co2_60 });
+  assert.ok(Math.abs(r.speedMmMin - r.speedMmS * 60) <= 5, `${r.speedMmS} vs ${r.speedMmMin}`);
 });

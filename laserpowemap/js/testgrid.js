@@ -1,7 +1,8 @@
 /*
  * 파워 x 속도 테스트 그리드 G코드 생성기 (GRBL 1.1 / LightBurn·LaserGRBL 호환)
  *
- * 가로축 = 속도, 세로축 = 출력. 실제 소재로 한 번 돌려보고
+ * 가로축 = 속도(mm/s), 세로축 = 출력. 실제 소재로 한 번 돌려보고
+ * G코드의 F 값은 GRBL 규격대로 mm/min 이므로 60을 곱해 내보낸다.
  * 가장 좋은 칸의 값을 그대로 쓰면 됩니다.
  */
 const TestGrid = (function () {
@@ -14,7 +15,7 @@ const TestGrid = (function () {
   function build(o) {
     const opt = Object.assign({
       powerFrom: 20, powerTo: 100, powerSteps: 5,
-      speedFrom: 200, speedTo: 3000, speedSteps: 5, // mm/min
+      speedFrom: 5, speedTo: 50, speedSteps: 5, // mm/s
       cell: 10, gap: 3, lineGap: 0.15, sMax: 1000,
       mode: "M4", fill: true, passes: 1, originNote: "왼쪽 아래",
     }, o || {});
@@ -26,7 +27,7 @@ const TestGrid = (function () {
 
     g.push("; ==============================================");
     g.push("; 레이저 파워 x 속도 테스트 그리드");
-    g.push("; 가로(X) = 속도 " + speeds.join(" / ") + " mm/min");
+    g.push("; 가로(X) = 속도 " + speeds.join(" / ") + " mm/s");
     g.push("; 세로(Y) = 출력 " + powers.join(" / ") + " %  (아래쪽이 낮은 출력)");
     g.push("; 칸 크기 " + opt.cell + "mm, 간격 " + opt.gap + "mm, 원점 = " + opt.originNote);
     g.push("; S값 최대 " + opt.sMax + " / 모드 " + opt.mode + " / 패스 " + opt.passes);
@@ -38,23 +39,24 @@ const TestGrid = (function () {
       const S = Math.round((pw / 100) * opt.sMax);
       speeds.forEach((sp, col) => {
         const x0 = col * pitch, y0 = row * pitch;
-        g.push(`; --- 출력 ${pw}% / 속도 ${sp}mm/min ---`);
+        const F = Math.max(1, Math.round(sp * 60));
+        g.push(`; --- 출력 ${pw}% / 속도 ${sp}mm/s (F${F}) ---`);
         for (let p = 0; p < opt.passes; p++) {
           if (opt.fill) {
             let y = y0, dir = 1;
             while (y <= y0 + opt.cell + 1e-9) {
               g.push(`G0 X${(dir > 0 ? x0 : x0 + opt.cell).toFixed(2)} Y${y.toFixed(2)}`);
-              g.push(`G1 X${(dir > 0 ? x0 + opt.cell : x0).toFixed(2)} Y${y.toFixed(2)} F${sp} S${S}`);
+              g.push(`G1 X${(dir > 0 ? x0 + opt.cell : x0).toFixed(2)} Y${y.toFixed(2)} F${F} S${S}`);
               g.push("S0");
               y += opt.lineGap;
               dir = -dir;
             }
           } else {
             g.push(`G0 X${x0.toFixed(2)} Y${y0.toFixed(2)}`);
-            g.push(`G1 X${(x0 + opt.cell).toFixed(2)} Y${y0.toFixed(2)} F${sp} S${S}`);
-            g.push(`G1 X${(x0 + opt.cell).toFixed(2)} Y${(y0 + opt.cell).toFixed(2)} F${sp} S${S}`);
-            g.push(`G1 X${x0.toFixed(2)} Y${(y0 + opt.cell).toFixed(2)} F${sp} S${S}`);
-            g.push(`G1 X${x0.toFixed(2)} Y${y0.toFixed(2)} F${sp} S${S}`);
+            g.push(`G1 X${(x0 + opt.cell).toFixed(2)} Y${y0.toFixed(2)} F${F} S${S}`);
+            g.push(`G1 X${(x0 + opt.cell).toFixed(2)} Y${(y0 + opt.cell).toFixed(2)} F${F} S${S}`);
+            g.push(`G1 X${x0.toFixed(2)} Y${(y0 + opt.cell).toFixed(2)} F${F} S${S}`);
+            g.push(`G1 X${x0.toFixed(2)} Y${y0.toFixed(2)} F${F} S${S}`);
             g.push("S0");
           }
         }
