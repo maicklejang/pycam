@@ -135,9 +135,11 @@ class ReviewActivity : AppCompatActivity() {
 
         val existing = store.load().firstOrNull { it.imageName == imageName }
         if (existing != null) {
+            // 이미 저장된 명함은 다시 인식하지 않는다. 진행 표시도 띄우지 않는다.
             savedAt = existing.savedAt
             rawText = existing.rawText
             alreadyCropped = existing.cropped
+            binding.progressRow.visibility = View.GONE
             bind(existing)
             showFields()
         } else {

@@ -88,4 +88,23 @@
     <string name="send_vcard">vCard(.vcf) 로 보내기</string>
     <string name="send_image">명함 이미지(PNG) 로 보내기</string>
     <string name="send_both">vCard 와 이미지 함께 보내기</string>
+
+    <!-- 내 명함: 템플릿 / 명함 사진 -->
+    <string name="my_card_mode_template">템플릿으로 만들기</string>
+    <string name="my_card_mode_photo">명함 사진 사용</string>
+    <string name="my_card_photo_source">명함 사진</string>
+    <string name="my_card_photo_hint">아래에서 내 명함으로 쓸 사진을 골라 주세요.</string>
+    <string name="my_card_from_scan">스캔한 명함에서 고르기</string>
+    <string name="my_card_capture">직접 촬영</string>
+    <string name="my_card_gallery">갤러리</string>
+    <string name="my_card_pick_scan_title">내 명함으로 쓸 명함</string>
+    <string name="my_card_scan_empty">스캔한 명함이 없습니다. 먼저 명함을 촬영해 주세요.</string>
+    <string name="my_card_photo_imported">명함 사진을 내 명함으로 설정했습니다.</string>
+    <string name="my_card_photo_failed">명함 사진을 불러오지 못했습니다.</string>
+    <string name="my_card_need_photo">먼저 내 명함으로 쓸 사진을 골라 주세요.</string>
+    <string name="my_card_need_fields">vCard 로 보내려면 이름이나 연락처를 입력해 주세요.</string>
+
+    <!-- 목록 화면의 내 명함 칸 -->
+    <string name="my_card_banner_empty">아직 만들지 않았습니다. 눌러서 만들어 보세요.</string>
+    <string name="my_card_banner_open">열기</string>
 </resources>

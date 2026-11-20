@@ -19,6 +19,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var store: CardStore
+    private lateinit var myCardStore: MyCardStore
     private lateinit var adapter: CardAdapter
 
     /** 저장된 전체 목록. 화면에는 검색어로 걸러낸 결과만 보여준다. */
@@ -63,6 +64,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         store = CardStore(this)
+        myCardStore = MyCardStore(this)
         adapter = CardAdapter(
             store = store,
             onClick = { card -> openReview(card.imageName) },
@@ -74,10 +76,12 @@ class MainActivity : AppCompatActivity() {
 
         binding.searchInput.doAfterTextChanged { applyFilter() }
 
+        binding.myCardBanner.setOnClickListener { openMyCard() }
+
         binding.toolbar.inflateMenu(R.menu.main)
         binding.toolbar.setOnMenuItemClickListener { item ->
             if (item.itemId == R.id.action_my_card) {
-                startActivity(Intent(this, MyCardActivity::class.java))
+                openMyCard()
                 true
             } else {
                 false
@@ -100,6 +104,39 @@ class MainActivity : AppCompatActivity() {
     private fun refresh() {
         allCards = store.load()
         applyFilter()
+        refreshMyCardBanner()
+    }
+
+    private fun openMyCard() {
+        startActivity(Intent(this, MyCardActivity::class.java))
+    }
+
+    /** 목록 맨 위의 내 명함 칸. 만들어 둔 명함이 있으면 그 모습과 이름을 보여준다. */
+    private fun refreshMyCardBanner() {
+        val card = myCardStore.load()
+        val hasPhoto = myCardStore.hasPhoto()
+
+        if (!card.canSave(hasPhoto)) {
+            binding.myCardSubtitle.setText(R.string.my_card_banner_empty)
+            binding.myCardThumb.setImageDrawable(null)
+            return
+        }
+
+        val summary = listOf(card.name, card.company, card.roleLine)
+            .filter { it.isNotBlank() }
+            .joinToString(" · ")
+        binding.myCardSubtitle.text = summary.ifBlank { card.displayName }
+
+        val thumbnail = if (card.usePhoto) {
+            ImageUtils.decodeScaled(myCardStore.photoFile, THUMBNAIL_WIDTH)
+        } else {
+            CardRenderer.render(card, THUMBNAIL_WIDTH)
+        }
+        if (thumbnail != null) {
+            binding.myCardThumb.setImageBitmap(thumbnail)
+        } else {
+            binding.myCardThumb.setImageDrawable(null)
+        }
     }
 
     /** 검색어를 적용해 목록·건수·빈 화면 안내를 갱신한다. */
@@ -154,5 +191,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun notify(message: String) {
         Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
+    }
+
+    private companion object {
+        /** 내 명함 칸의 썸네일 폭. 칸이 86dp 라 이 정도면 넉넉하다. */
+        const val THUMBNAIL_WIDTH = 240
     }
 }
