@@ -1,6 +1,7 @@
 package org.pycam.bizcard
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
@@ -29,8 +30,17 @@ class CardRecognizer {
 
     private val recognizer = TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
 
-    suspend fun recognize(context: Context, uri: Uri): Result {
-        val image = InputImage.fromFilePath(context, uri)
+    suspend fun recognize(context: Context, uri: Uri): Result =
+        process(InputImage.fromFilePath(context, uri))
+
+    /**
+     * 이미 잘라낸 비트맵에서 인식한다. 사용자가 명함 영역을 직접 고른 경우에 쓴다.
+     * 비트맵은 EXIF 회전이 이미 반영된 상태라 회전값은 0 이다.
+     */
+    suspend fun recognize(bitmap: Bitmap): Result =
+        process(InputImage.fromBitmap(bitmap, 0))
+
+    private suspend fun process(image: InputImage): Result {
         val text = suspendCancellableCoroutine<Text> { continuation ->
             recognizer.process(image)
                 .addOnSuccessListener { result -> continuation.resume(result) }

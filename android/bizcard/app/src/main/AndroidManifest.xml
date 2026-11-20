@@ -40,6 +40,17 @@
             android:parentActivityName=".MainActivity"
             android:windowSoftInputMode="adjustResize" />
 
+        <activity
+            android:name=".CropActivity"
+            android:exported="false"
+            android:parentActivityName=".ReviewActivity" />
+
+        <activity
+            android:name=".MyCardActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity"
+            android:windowSoftInputMode="adjustResize" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

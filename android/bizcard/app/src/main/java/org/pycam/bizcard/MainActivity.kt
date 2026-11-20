@@ -74,6 +74,16 @@ class MainActivity : AppCompatActivity() {
 
         binding.searchInput.doAfterTextChanged { applyFilter() }
 
+        binding.toolbar.inflateMenu(R.menu.main)
+        binding.toolbar.setOnMenuItemClickListener { item ->
+            if (item.itemId == R.id.action_my_card) {
+                startActivity(Intent(this, MyCardActivity::class.java))
+                true
+            } else {
+                false
+            }
+        }
+
         binding.captureButton.setOnClickListener { startCapture() }
         binding.pickButton.setOnClickListener {
             pickLauncher.launch(

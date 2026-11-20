@@ -51,4 +51,41 @@
     <string name="search_empty_title">검색 결과가 없습니다</string>
     <string name="search_empty_message">다른 낱말로 찾아 보세요. 이름, 회사, 부서, 직함, 전화번호, 이메일, 주소, 인식 원문까지 검색합니다.</string>
     <string name="search_result_count">%1$d개 명함</string>
+
+    <!-- 명함 영역 직접 선택 -->
+    <string name="action_select_region">명함 영역 직접 선택</string>
+    <string name="crop_title">명함 영역 선택</string>
+    <string name="crop_hint">모서리를 끌어 명함만 들어오도록 맞춘 뒤 아래 버튼을 누르세요. 선택한 영역 안에서만 글자를 읽습니다.</string>
+    <string name="action_crop_reset">전체 선택</string>
+    <string name="action_crop_confirm">이 영역으로 인식</string>
+    <string name="crop_to_selection">선택한 영역만 저장</string>
+
+    <!-- 연락처 그룹 -->
+    <string name="action_select_group">그룹 선택</string>
+    <string name="group_label">연락처 그룹</string>
+    <string name="group_none">선택 안 함</string>
+    <string name="group_dialog_title">저장할 그룹</string>
+    <string name="group_empty">기기 주소록에 선택할 수 있는 그룹이 없습니다.</string>
+    <string name="saved_with_groups">%1$s 그룹: %2$s</string>
+    <string name="group_one_account">연락처는 한 계정에만 들어가므로 같은 계정의 그룹만 선택했습니다.</string>
+
+    <!-- 내 명함 -->
+    <string name="action_my_card">내 명함</string>
+    <string name="my_card_title">내 명함 만들기</string>
+    <string name="my_card_preview">내 명함 미리보기</string>
+    <string name="my_card_template">템플릿</string>
+    <string name="my_card_accent">강조색</string>
+    <string name="my_card_fields">명함 내용</string>
+    <string name="template_preview">템플릿 미리보기</string>
+    <string name="accent_default">템플릿 기본색</string>
+    <string name="accent_choice">강조색 %1$d</string>
+    <string name="hint_tagline">한 줄 소개</string>
+    <string name="action_save_my_card">저장</string>
+    <string name="action_send_my_card">내 명함 보내기</string>
+    <string name="my_card_saved">내 명함을 저장했습니다.</string>
+    <string name="my_card_empty">이름이나 연락처를 먼저 입력해 주세요.</string>
+    <string name="my_card_send_failed">내 명함을 보내지 못했습니다: %1$s</string>
+    <string name="send_vcard">vCard(.vcf) 로 보내기</string>
+    <string name="send_image">명함 이미지(PNG) 로 보내기</string>
+    <string name="send_both">vCard 와 이미지 함께 보내기</string>
 </resources>
