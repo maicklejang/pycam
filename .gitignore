@@ -7,6 +7,8 @@ test.ngc
 
 man/pycam.1
 man/pycam.1.html
+man/pycam-photo3d.1
+man/pycam-photo3d.1.html
 docs/release-notes.md
 
 dist
@@ -30,6 +32,11 @@ man/pycam.1
 
 # Generated mkdocs files go into the site directory
 site/
+
+# the Android app: generated copies and build artifacts
+android/pycam/
+android/bin/
+android/.buildozer/
 
 # debian packaging
 debian/debhelper-build-stamp
