@@ -97,10 +97,59 @@ object ImageUtils {
     }
 
     /**
+     * 흰 배경을 투명하게 지운 비트맵. 지울 점이 없으면 [bitmap] 을 그대로 돌려준다.
+     * 돌려준 비트맵이 [bitmap] 과 다르면 [bitmap] 은 이미 버려졌으니 다시 쓰지 않는다.
+     *
+     * 종이 명함에서 잘라낸 회사 로고를 명함 위에 얹을 때 흰 네모가 보이지 않게 하는 데 쓴다.
+     */
+    fun clearWhiteBackground(bitmap: Bitmap): Bitmap {
+        val width = bitmap.width
+        val height = bitmap.height
+        if (width <= 0 || height <= 0) return bitmap
+
+        val pixels = try {
+            IntArray(width * height).also { bitmap.getPixels(it, 0, width, 0, 0, width, height) }
+        } catch (e: Exception) {
+            // 그림이 너무 커서 배열을 잡지 못한 경우. 원본을 그대로 쓴다.
+            return bitmap
+        }
+
+        var changed = 0
+        for (index in pixels.indices) {
+            val pixel = pixels[index]
+            if (pixel ushr 24 == 0) continue
+            val r = pixel shr 16 and 0xFF
+            val g = pixel shr 8 and 0xFF
+            val b = pixel and 0xFF
+            if (LogoTrim.isBackground(r, g, b)) {
+                pixels[index] = 0
+                changed++
+            }
+        }
+        if (changed == 0) return bitmap
+
+        val cleared = try {
+            Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+        } catch (e: Exception) {
+            return bitmap
+        }
+        bitmap.recycle()
+        return cleared
+    }
+
+    /**
      * 명함 영역만 남기고 [file] 을 덮어쓴다. 성공하면 true.
      * 새로 쓴 JPEG 에는 회전 정보가 없으므로 EXIF 는 남기지 않는다.
+     *
+     * 투명한 부분을 살려야 하는 그림(회사 로고)은 [format] 에 PNG 를 넘긴다.
      */
-    fun cropInPlace(file: File, box: CardCrop.Box, sourceWidth: Int, sourceHeight: Int): Boolean {
+    fun cropInPlace(
+        file: File,
+        box: CardCrop.Box,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        format: Bitmap.CompressFormat = Bitmap.CompressFormat.JPEG
+    ): Boolean {
         val cropped = decodeCropped(file, box, sourceWidth, sourceHeight, CROP_OUTPUT_SIZE) ?: return false
 
         // 원본을 바로 열어 쓰면 압축이 실패했을 때 명함 사진이 사라진다.
@@ -108,7 +157,7 @@ object ImageUtils {
         val temporary = File(file.parentFile, file.name + ".crop")
         return try {
             val written = FileOutputStream(temporary).use { output ->
-                cropped.compress(Bitmap.CompressFormat.JPEG, CROP_QUALITY, output)
+                cropped.compress(format, CROP_QUALITY, output)
             }
             if (!written || temporary.length() == 0L) {
                 temporary.delete()

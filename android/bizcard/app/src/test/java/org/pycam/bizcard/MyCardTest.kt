@@ -1,6 +1,8 @@
 package org.pycam.bizcard
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -148,5 +150,55 @@ class MyCardTest {
     @Test
     fun `템플릿 id 가 잘못돼도 기본 템플릿으로 떨어진다`() {
         assertEquals(CardTemplates.ALL.first().id, MyCard(templateId = "없는템플릿").template.id)
+    }
+
+    @Test
+    fun `QR 을 넣지 않으면 담을 내용이 없다`() {
+        assertNull(MyCard(name = "홍길동", mobile = "01011112222").barcodePayload())
+    }
+
+    @Test
+    fun `연락처 QR 은 이름과 번호만 있어도 만들어진다`() {
+        val card = MyCard(
+            name = "홍길동",
+            mobile = "010-1111-2222",
+            barcodeMode = BarcodeContent.MODE_CONTACT
+        )
+        val payload = card.barcodePayload()
+        assertNotNull(payload)
+        assertTrue(payload!!.contains("N:홍길동;"))
+    }
+
+    @Test
+    fun `로고가 없으면 자리를 잡지 않는다`() {
+        val card = MyCard(logoSpot = LogoPlacement.SPOT_TOP_RIGHT)
+        assertEquals(LogoPlacement.SPOT_NONE, card.logoSpotFor(hasLogo = false))
+        assertEquals(LogoPlacement.SPOT_TOP_RIGHT, card.logoSpotFor(hasLogo = true))
+    }
+
+    @Test
+    fun `오른쪽 아래 로고는 QR 이 있으면 위로 비켜 준다`() {
+        val card = MyCard(
+            name = "홍길동",
+            mobile = "01011112222",
+            logoSpot = LogoPlacement.SPOT_BOTTOM_RIGHT,
+            barcodeMode = BarcodeContent.MODE_CONTACT
+        )
+        assertEquals(LogoPlacement.SPOT_TOP_RIGHT, card.logoSpotFor(hasLogo = true))
+    }
+
+    @Test
+    fun `QR 과 로고 설정은 스캔 결과를 가져와도 그대로다`() {
+        val card = MyCard(
+            barcodeMode = BarcodeContent.MODE_LINK,
+            barcodeText = "intro.example",
+            logoSpot = LogoPlacement.SPOT_TOP_LEFT,
+            logoScale = 0.3f
+        )
+        val filled = card.fillFrom(BizCard(name = "홍길동"))
+        assertEquals(BarcodeContent.MODE_LINK, filled.barcodeMode)
+        assertEquals("intro.example", filled.barcodeText)
+        assertEquals(LogoPlacement.SPOT_TOP_LEFT, filled.logoSpot)
+        assertEquals(0.3f, filled.logoScale, 0.0001f)
     }
 }

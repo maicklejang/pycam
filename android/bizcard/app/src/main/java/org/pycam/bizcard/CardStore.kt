@@ -22,7 +22,7 @@ class CardStore(context: Context) {
         if (!indexFile.exists()) return emptyList()
         return try {
             val array = JSONArray(indexFile.readText())
-            (0 until array.length()).map { fromJson(array.getJSONObject(it)) }
+            (0 until array.length()).map { CardJson.fromJson(array.getJSONObject(it)) }
                 .sortedByDescending { it.savedAt }
         } catch (e: Exception) {
             emptyList()
@@ -36,6 +36,11 @@ class CardStore(context: Context) {
         write(listOf(stamped) + current)
     }
 
+    /** 백업에서 복원한 목록으로 전체를 갈아 끼운다. */
+    fun replaceAll(cards: List<BizCard>) {
+        write(cards)
+    }
+
     fun delete(card: BizCard) {
         write(load().filterNot { it.imageName == card.imageName && it.savedAt == card.savedAt })
         if (card.imageName.isNotEmpty()) imageFile(card.imageName).delete()
@@ -43,11 +48,19 @@ class CardStore(context: Context) {
 
     private fun write(cards: List<BizCard>) {
         val array = JSONArray()
-        cards.take(MAX_ENTRIES).forEach { array.put(toJson(it)) }
+        cards.take(MAX_ENTRIES).forEach { array.put(CardJson.toJson(it)) }
         indexFile.writeText(array.toString())
     }
 
-    private fun toJson(card: BizCard) = JSONObject().apply {
+    companion object {
+        const val MAX_ENTRIES = 500
+    }
+}
+
+/** 스캔한 명함 한 장을 JSON 으로 옮긴다. 목록 파일과 백업 파일이 같은 형태를 쓴다. */
+object CardJson {
+
+    fun toJson(card: BizCard): JSONObject = JSONObject().apply {
         put("name", card.name)
         put("company", card.company)
         put("title", card.title)
@@ -65,7 +78,7 @@ class CardStore(context: Context) {
         put("savedAt", card.savedAt)
     }
 
-    private fun fromJson(json: JSONObject) = BizCard(
+    fun fromJson(json: JSONObject): BizCard = BizCard(
         name = json.optString("name"),
         company = json.optString("company"),
         title = json.optString("title"),
@@ -82,8 +95,4 @@ class CardStore(context: Context) {
         cropped = json.optBoolean("cropped"),
         savedAt = json.optLong("savedAt")
     )
-
-    private companion object {
-        const val MAX_ENTRIES = 500
-    }
 }

@@ -7,6 +7,7 @@ import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.snackbar.Snackbar
 import org.pycam.bizcard.databinding.ActivityCropBinding
+import java.io.File
 
 /**
  * 촬영한 사진에서 명함 영역을 손으로 골라내는 화면.
@@ -23,10 +24,8 @@ class CropActivity : AppCompatActivity() {
         binding = ActivityCropBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        val store = CardStore(this)
-        val imageName = intent.getStringExtra(EXTRA_IMAGE_NAME).orEmpty()
-        val file = store.imageFile(imageName)
-        val bitmap = if (imageName.isEmpty()) null else ImageUtils.decodeScaled(file, WORK_SIZE)
+        val file = sourceFile()
+        val bitmap = if (file == null) null else ImageUtils.decodeScaled(file, WORK_SIZE)
 
         if (bitmap == null) {
             Snackbar.make(binding.root, getString(R.string.capture_failed), Snackbar.LENGTH_LONG).show()
@@ -35,11 +34,40 @@ class CropActivity : AppCompatActivity() {
             return
         }
 
+        applyLabels()
         binding.toolbar.setNavigationOnClickListener { cancel() }
         binding.cropView.setBitmap(bitmap, initialBox(bitmap.width, bitmap.height))
 
         binding.resetButton.setOnClickListener { binding.cropView.reset() }
         binding.confirmButton.setOnClickListener { confirm(bitmap.width, bitmap.height) }
+    }
+
+    /**
+     * 무엇을 자르는지에 맞춰 제목과 안내를 바꾼다. 스캔한 명함은 고른 영역에서 글자를 읽지만,
+     * 내 명함 사진과 회사 로고는 그 영역만 남기고 자르기만 한다.
+     */
+    private fun applyLabels() {
+        val source = intent.getStringExtra(EXTRA_SOURCE)
+        if (source != SOURCE_MY_PHOTO && source != SOURCE_MY_LOGO) return
+
+        binding.toolbar.title = getString(
+            if (source == SOURCE_MY_LOGO) R.string.crop_title_logo else R.string.crop_title_photo
+        )
+        binding.cropHint.setText(R.string.crop_hint_trim)
+        binding.confirmButton.setText(R.string.action_crop_apply)
+    }
+
+    /**
+     * 영역을 고를 그림 파일. 어느 그림인지는 [EXTRA_SOURCE] 가 정하고, 경로를 받지는 않는다.
+     * 쓸 수 없는 값이면 null.
+     */
+    private fun sourceFile(): File? = when (intent.getStringExtra(EXTRA_SOURCE)) {
+        SOURCE_MY_PHOTO -> MyCardStore(this).photoFile
+        SOURCE_MY_LOGO -> MyCardStore(this).logoFile
+        else -> {
+            val imageName = intent.getStringExtra(EXTRA_IMAGE_NAME).orEmpty()
+            if (imageName.isEmpty()) null else CardStore(this).imageFile(imageName)
+        }
     }
 
     /** 호출한 쪽이 넘긴 영역을 지금 비트맵 좌표계로 옮긴다. */
@@ -85,6 +113,7 @@ class CropActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_IMAGE_NAME = "image_name"
+        const val EXTRA_SOURCE = "source"
         const val EXTRA_LEFT = "left"
         const val EXTRA_TOP = "top"
         const val EXTRA_RIGHT = "right"
@@ -92,6 +121,15 @@ class CropActivity : AppCompatActivity() {
         const val EXTRA_SOURCE_WIDTH = "source_width"
         const val EXTRA_SOURCE_HEIGHT = "source_height"
         const val EXTRA_WHOLE_IMAGE = "whole_image"
+
+        /** 스캔 기록의 명함 사진. [EXTRA_IMAGE_NAME] 으로 어느 장인지 가린다. */
+        const val SOURCE_SCAN = "scan"
+
+        /** 내 명함으로 쓰는 사진. */
+        const val SOURCE_MY_PHOTO = "my_photo"
+
+        /** 내 명함에 얹는 회사 로고. */
+        const val SOURCE_MY_LOGO = "my_logo"
 
         /** 영역을 고를 때 쓰는 비트맵 크기. 화면에 보여줄 만큼 크고 메모리는 넉넉하다. */
         private const val WORK_SIZE = 1600
@@ -104,6 +142,7 @@ class CropActivity : AppCompatActivity() {
             sourceWidth: Int,
             sourceHeight: Int
         ): Intent = Intent(context, CropActivity::class.java).apply {
+            putExtra(EXTRA_SOURCE, SOURCE_SCAN)
             putExtra(EXTRA_IMAGE_NAME, imageName)
             if (box != null && sourceWidth > 0 && sourceHeight > 0) {
                 putExtra(EXTRA_LEFT, box.left)
@@ -114,5 +153,9 @@ class CropActivity : AppCompatActivity() {
                 putExtra(EXTRA_SOURCE_HEIGHT, sourceHeight)
             }
         }
+
+        /** 내 명함 사진이나 회사 로고에서 영역을 고르는 화면. 자동 감지 결과 없이 시작한다. */
+        fun localIntent(context: Context, source: String): Intent =
+            Intent(context, CropActivity::class.java).putExtra(EXTRA_SOURCE, source)
     }
 }

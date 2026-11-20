@@ -59,6 +59,10 @@
     <string name="action_crop_reset">전체 선택</string>
     <string name="action_crop_confirm">이 영역으로 인식</string>
     <string name="crop_to_selection">선택한 영역만 저장</string>
+    <string name="crop_title_photo">내 명함 사진 자르기</string>
+    <string name="crop_title_logo">회사 로고 자르기</string>
+    <string name="crop_hint_trim">모서리를 끌어 남길 부분만 들어오도록 맞춘 뒤 아래 버튼을 누르세요.</string>
+    <string name="action_crop_apply">이 영역으로 자르기</string>
 
     <!-- 연락처 그룹 -->
     <string name="action_select_group">그룹 선택</string>
@@ -107,4 +111,73 @@
     <!-- 목록 화면의 내 명함 칸 -->
     <string name="my_card_banner_empty">아직 만들지 않았습니다. 눌러서 만들어 보세요.</string>
     <string name="my_card_banner_open">열기</string>
+
+    <!-- 내 명함: 사진 다루기 -->
+    <string name="my_card_edit_region">사진 영역 편집</string>
+    <string name="my_card_delete_photo">사진 지우기</string>
+    <string name="my_card_photo_cropped">사진 영역을 바꿨습니다.</string>
+    <string name="my_card_crop_failed">영역을 잘라내지 못했습니다.</string>
+    <string name="my_card_photo_deleted">내 명함 사진을 지웠습니다.</string>
+    <string name="my_card_delete_photo_confirm">내 명함 사진을 지울까요? 입력해 둔 항목과 템플릿 명함은 그대로 있습니다.</string>
+
+    <!-- 내 명함: 회사 로고 -->
+    <string name="my_card_logo_title">회사 로고</string>
+    <string name="my_card_logo_hint">종이 명함에서 로고만 잘라 넣고 흰 배경을 지우면 깔끔합니다.</string>
+    <string name="my_card_logo_pick">로고 가져오기</string>
+    <string name="my_card_logo_capture">로고 촬영</string>
+    <string name="my_card_logo_edit">영역 편집</string>
+    <string name="my_card_logo_clear_bg">흰 배경 지우기</string>
+    <string name="my_card_logo_delete">로고 지우기</string>
+    <string name="my_card_logo_spot">로고 자리</string>
+    <string name="my_card_logo_spot_none">넣지 않기</string>
+    <string name="my_card_logo_spot_tr">오른쪽 위</string>
+    <string name="my_card_logo_spot_tl">왼쪽 위</string>
+    <string name="my_card_logo_spot_br">오른쪽 아래</string>
+    <string name="my_card_logo_size">로고 크기</string>
+    <string name="my_card_logo_imported">회사 로고를 넣었습니다.</string>
+    <string name="my_card_logo_failed">로고를 가져오지 못했습니다.</string>
+    <string name="my_card_logo_need">먼저 로고를 가져와 주세요.</string>
+    <string name="my_card_logo_bg_done">로고의 흰 배경을 지웠습니다.</string>
+    <string name="my_card_logo_bg_failed">배경을 지우지 못했습니다.</string>
+    <string name="my_card_logo_deleted">회사 로고를 지웠습니다.</string>
+    <string name="my_card_logo_delete_confirm">명함에 넣은 회사 로고를 지울까요?</string>
+    <string name="my_card_logo_moved">QR 과 겹쳐서 로고를 오른쪽 위로 옮겼습니다.</string>
+
+    <!-- 내 명함: QR 코드 -->
+    <string name="my_card_barcode_title">QR 코드</string>
+    <string name="my_card_barcode_note">템플릿 명함의 오른쪽 아래에 들어갑니다. 연락처 QR 은 상대가 찍으면 바로 주소록에 추가됩니다.</string>
+    <string name="my_card_barcode_none">넣지 않기</string>
+    <string name="my_card_barcode_contact">연락처</string>
+    <string name="my_card_barcode_link">링크</string>
+    <string name="my_card_barcode_link_hint">링크 주소 (비우면 홈페이지)</string>
+    <string name="my_card_barcode_show">QR 크게 보기</string>
+    <string name="my_card_barcode_empty">QR 에 담을 내용이 없습니다. 연락처나 링크를 먼저 입력해 주세요.</string>
+    <string name="my_card_barcode_long">담을 내용이 너무 깁니다. 항목을 줄여 주세요.</string>
+    <string name="my_card_barcode_failed">QR 을 만들지 못했습니다.</string>
+    <string name="my_card_barcode_share">QR 그림 보내기</string>
+    <string name="my_card_barcode_dialog_contact">찍으면 주소록에 바로 추가됩니다.</string>
+    <string name="my_card_barcode_dialog_link">찍으면 이 주소로 연결됩니다.</string>
+
+    <!-- 백업·복원 -->
+    <string name="action_backup">백업·복원</string>
+    <string name="backup_title">명함 자료 백업</string>
+    <string name="backup_note">스캔한 명함과 내 명함을 압축 파일 한 개로 저장합니다. 기기 주소록에 저장한 연락처는 들어가지 않습니다.</string>
+    <string name="backup_make">백업 파일 저장</string>
+    <string name="backup_share">백업 파일 보내기</string>
+    <string name="backup_restore">백업 파일에서 복원</string>
+    <string name="backup_working">백업 파일을 만들고 있습니다…</string>
+    <string name="backup_restoring">백업 파일을 읽고 있습니다…</string>
+    <string name="backup_done">백업했습니다. 명함 %1$d장, 사진 %2$d장</string>
+    <string name="backup_failed">백업하지 못했습니다: %1$s</string>
+    <string name="backup_empty">백업할 자료가 없습니다.</string>
+    <string name="backup_share_title">명함 백업 파일 보내기</string>
+    <string name="restore_confirm_title">백업 파일 내용</string>
+    <string name="restore_confirm_message">명함 %1$d장, 사진 %2$d장이 들어 있습니다.\n\n지금 있는 기록은 지우지 않고 더합니다.</string>
+    <string name="restore_my_card_question">\n백업 파일에 내 명함도 들어 있습니다. 지금 만들어 둔 내 명함을 이것으로 바꿀까요?</string>
+    <string name="restore_action">복원</string>
+    <string name="restore_with_my_card">모두 복원</string>
+    <string name="restore_keep_my_card">스캔 기록만</string>
+    <string name="restore_done">복원했습니다. 명함 %1$d장, 사진 %2$d장</string>
+    <string name="restore_failed">복원하지 못했습니다: %1$s</string>
+    <string name="restore_nothing">복원할 내용이 없습니다.</string>
 </resources>

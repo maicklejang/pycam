@@ -1,5 +1,6 @@
 package org.pycam.bizcard
 
+import android.graphics.Bitmap
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
@@ -14,10 +15,12 @@ class TemplateAdapter(
 
     private val templates = CardTemplates.ALL
     private var card: MyCard = MyCard()
+    private var logo: Bitmap? = null
 
-    /** 미리보기에 쓸 내용과 선택 상태를 갱신한다. */
-    fun update(card: MyCard) {
+    /** 미리보기에 쓸 내용과 선택 상태를 갱신한다. [logo] 는 명함에 얹을 회사 로고. */
+    fun update(card: MyCard, logo: Bitmap? = null) {
         this.card = card
+        this.logo = logo
         notifyDataSetChanged()
     }
 
@@ -39,7 +42,7 @@ class TemplateAdapter(
             val selected = template.id == card.templateId
             binding.templateTitle.text = template.title
             binding.templatePreview.setImageBitmap(
-                CardRenderer.render(card.copy(templateId = template.id), PREVIEW_WIDTH)
+                CardRenderer.render(card.copy(templateId = template.id), PREVIEW_WIDTH, logo)
             )
             binding.templateCard.setStrokeColor(
                 if (selected) card.copy(templateId = template.id).resolvedAccent() else 0x22000000

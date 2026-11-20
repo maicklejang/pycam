@@ -3,6 +3,7 @@ package org.pycam.bizcard
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import androidx.activity.result.PickVisualMediaRequest
@@ -10,10 +11,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.widget.doAfterTextChanged
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.snackbar.Snackbar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.pycam.bizcard.databinding.ActivityMainBinding
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -58,6 +65,19 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { refresh() }
 
+    /** 백업 파일을 저장할 자리를 사용자가 고른다. 앱이 저장 권한을 받을 필요가 없다. */
+    private val createBackupLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri != null) writeBackup(uri)
+    }
+
+    private val openBackupLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) readBackup(uri)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -80,11 +100,18 @@ class MainActivity : AppCompatActivity() {
 
         binding.toolbar.inflateMenu(R.menu.main)
         binding.toolbar.setOnMenuItemClickListener { item ->
-            if (item.itemId == R.id.action_my_card) {
-                openMyCard()
-                true
-            } else {
-                false
+            when (item.itemId) {
+                R.id.action_my_card -> {
+                    openMyCard()
+                    true
+                }
+
+                R.id.action_backup -> {
+                    showBackupDialog()
+                    true
+                }
+
+                else -> false
             }
         }
 
@@ -130,7 +157,12 @@ class MainActivity : AppCompatActivity() {
         val thumbnail = if (card.usePhoto) {
             ImageUtils.decodeScaled(myCardStore.photoFile, THUMBNAIL_WIDTH)
         } else {
-            CardRenderer.render(card, THUMBNAIL_WIDTH)
+            val logo = if (myCardStore.hasLogo()) {
+                ImageUtils.decodeScaled(myCardStore.logoFile, THUMBNAIL_WIDTH)
+            } else {
+                null
+            }
+            CardRenderer.render(card, THUMBNAIL_WIDTH, logo)
         }
         if (thumbnail != null) {
             binding.myCardThumb.setImageBitmap(thumbnail)
@@ -189,11 +221,201 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    // ------------------------------------------------------------------ 백업·복원
+
+    private fun showBackupDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_backup, null)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.backup_title)
+            .setView(view)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+
+        view.findViewById<View>(R.id.backupMakeButton).setOnClickListener {
+            dialog.dismiss()
+            startBackup(share = false)
+        }
+        view.findViewById<View>(R.id.backupShareButton).setOnClickListener {
+            dialog.dismiss()
+            startBackup(share = true)
+        }
+        view.findViewById<View>(R.id.backupRestoreButton).setOnClickListener {
+            dialog.dismiss()
+            openBackupLauncher.launch(BACKUP_MIME_TYPES)
+        }
+        dialog.show()
+    }
+
+    private fun startBackup(share: Boolean) {
+        if (allCards.isEmpty() && !myCardStore.hasCard()) {
+            notify(getString(R.string.backup_empty))
+            return
+        }
+        val name = CardBackup(this).suggestedFileName()
+        if (share) shareBackup(name) else createBackupLauncher.launch(name)
+    }
+
+    /** 사용자가 고른 자리에 백업 파일을 쓴다. */
+    private fun writeBackup(uri: Uri) {
+        lifecycleScope.launch {
+            val waiting = waitingDialog(R.string.backup_working)
+            val outcome = try {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val stream = contentResolver.openOutputStream(uri)
+                            ?: error("저장할 자리를 열지 못했습니다")
+                        stream.use { CardBackup(this@MainActivity).exportTo(it) }
+                    }
+                }
+            } finally {
+                waiting.dismiss()
+            }
+            outcome
+                .onSuccess { notify(getString(R.string.backup_done, it.cards, it.images)) }
+                .onFailure { notify(getString(R.string.backup_failed, it.readableMessage())) }
+        }
+    }
+
+    /** 백업 파일을 만들어 바로 다른 앱으로 보낸다. */
+    private fun shareBackup(name: String) {
+        lifecycleScope.launch {
+            val waiting = waitingDialog(R.string.backup_working)
+            val outcome = try {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val shareDir = File(cacheDir, "shared").apply { mkdirs() }
+                        val file = File(shareDir, name)
+                        val summary = file.outputStream().use {
+                            CardBackup(this@MainActivity).exportTo(it)
+                        }
+                        summary to FileProvider.getUriForFile(
+                            this@MainActivity,
+                            "$packageName.fileprovider",
+                            file
+                        )
+                    }
+                }
+            } finally {
+                waiting.dismiss()
+            }
+            outcome
+                .onSuccess { (summary, uri) ->
+                    notify(getString(R.string.backup_done, summary.cards, summary.images))
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/zip"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_SUBJECT, name)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(
+                        Intent.createChooser(intent, getString(R.string.backup_share_title))
+                    )
+                }
+                .onFailure { notify(getString(R.string.backup_failed, it.readableMessage())) }
+        }
+    }
+
+    /** 고른 백업 파일을 풀어 보고, 무엇을 복원할지 물어본다. */
+    private fun readBackup(uri: Uri) {
+        lifecycleScope.launch {
+            val backup = CardBackup(this@MainActivity)
+            val waiting = waitingDialog(R.string.backup_restoring)
+            val outcome = try {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val stream = contentResolver.openInputStream(uri)
+                            ?: error("파일을 열지 못했습니다")
+                        stream.use { backup.stage(it) }
+                    }
+                }
+            } finally {
+                waiting.dismiss()
+            }
+            outcome
+                .onSuccess { contents -> confirmRestore(backup, contents) }
+                .onFailure { notify(getString(R.string.restore_failed, it.readableMessage())) }
+        }
+    }
+
+    private fun confirmRestore(backup: CardBackup, contents: CardBackup.Contents) {
+        if (contents.cards.isEmpty() && contents.images == 0 && !contents.hasMyCard) {
+            backup.discard(contents)
+            notify(getString(R.string.restore_nothing))
+            return
+        }
+
+        // 내 명함을 덮어쓸지는 물어본다. 이미 만들어 둔 것이 없으면 물을 것도 없다.
+        val ask = contents.hasMyCard && myCardStore.hasCard()
+        val message = buildString {
+            append(getString(R.string.restore_confirm_message, contents.cards.size, contents.images))
+            if (ask) append(getString(R.string.restore_my_card_question))
+        }
+
+        val builder = AlertDialog.Builder(this)
+            .setTitle(R.string.restore_confirm_title)
+            .setMessage(message)
+            .setOnCancelListener { backup.discard(contents) }
+            .setNegativeButton(android.R.string.cancel) { _, _ -> backup.discard(contents) }
+
+        if (ask) {
+            builder.setPositiveButton(R.string.restore_with_my_card) { _, _ ->
+                applyRestore(backup, contents, restoreMyCard = true)
+            }
+            builder.setNeutralButton(R.string.restore_keep_my_card) { _, _ ->
+                applyRestore(backup, contents, restoreMyCard = false)
+            }
+        } else {
+            builder.setPositiveButton(R.string.restore_action) { _, _ ->
+                applyRestore(backup, contents, restoreMyCard = contents.hasMyCard)
+            }
+        }
+        builder.show()
+    }
+
+    private fun applyRestore(
+        backup: CardBackup,
+        contents: CardBackup.Contents,
+        restoreMyCard: Boolean
+    ) {
+        lifecycleScope.launch {
+            val waiting = waitingDialog(R.string.backup_restoring)
+            val outcome = try {
+                withContext(Dispatchers.IO) {
+                    runCatching { backup.apply(contents, restoreMyCard) }
+                }
+            } finally {
+                waiting.dismiss()
+            }
+            refresh()
+            outcome
+                .onSuccess { notify(getString(R.string.restore_done, it.cards, it.images)) }
+                .onFailure { notify(getString(R.string.restore_failed, it.readableMessage())) }
+        }
+    }
+
+    /** 오래 걸리는 일을 하는 동안 띄워 두는 안내. */
+    private fun waitingDialog(message: Int): AlertDialog =
+        AlertDialog.Builder(this)
+            .setMessage(message)
+            .setCancelable(false)
+            .create()
+            .also { it.show() }
+
+    private fun Throwable.readableMessage(): String =
+        message?.takeIf { it.isNotBlank() } ?: javaClass.simpleName
+
     private fun notify(message: String) {
         Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
     }
 
     private companion object {
+        /** 백업 파일을 고를 때 보여줄 종류. 기기나 클라우드마다 알려주는 종류가 달라서 넉넉히 받는다. */
+        val BACKUP_MIME_TYPES = arrayOf(
+            "application/zip",
+            "application/x-zip-compressed",
+            "application/octet-stream"
+        )
+
         /** 내 명함 칸의 썸네일 폭. 칸이 86dp 라 이 정도면 넉넉하다. */
         const val THUMBNAIL_WIDTH = 240
     }

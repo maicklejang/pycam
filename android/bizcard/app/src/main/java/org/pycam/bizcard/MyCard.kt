@@ -23,7 +23,15 @@ data class MyCard(
      * true 면 템플릿으로 그리지 않고 가지고 있는 명함 사진을 그대로 쓴다.
      * 스캔 기록에서 고른 명함이나 새로 찍은 사진이 여기에 해당한다.
      */
-    val usePhoto: Boolean = false
+    val usePhoto: Boolean = false,
+    /** QR 에 담을 내용. [BarcodeContent] 의 MODE_* 값. */
+    val barcodeMode: String = BarcodeContent.MODE_NONE,
+    /** 링크 모드에서 직접 적은 주소. 비어 있으면 홈페이지 항목을 쓴다. */
+    val barcodeText: String = "",
+    /** 회사 로고를 넣을 자리. [LogoPlacement] 의 SPOT_* 값. */
+    val logoSpot: String = LogoPlacement.SPOT_NONE,
+    /** 로고 크기. 명함 가로 길이에 대한 비율이다. */
+    val logoScale: Float = LogoPlacement.DEFAULT_SCALE
 ) {
     val isEmpty: Boolean
         get() = listOf(name, company, mobile, phone, email).all { it.isBlank() }
@@ -67,6 +75,16 @@ data class MyCard(
     )
 
     fun toVCard(): String = toBizCard().toVCard()
+
+    /**
+     * QR 에 담을 내용. 담을 것이 없거나 너무 길어서 명함 크기로는 읽히지 않으면 null.
+     */
+    fun barcodePayload(): String? =
+        BarcodeContent.payload(this)?.takeIf { it.isNotBlank() && !BarcodeContent.isTooLong(it) }
+
+    /** 로고를 실제로 그릴 자리. QR 과 겹치면 비켜 준다. */
+    fun logoSpotFor(hasLogo: Boolean): String =
+        LogoPlacement.resolve(logoSpot, hasLogo, barcodePayload() != null)
 
     /** vCard 로 보낼 수 있는지. 적어도 한 항목은 채워져 있어야 한다. */
     fun canSendVCard(): Boolean = !isEmpty

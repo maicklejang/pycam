@@ -82,6 +82,7 @@ dependencies {
 
     implementation(libs.mlkit.text.recognition.korean)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.zxing.core)
 
     testImplementation(libs.junit)
 }
