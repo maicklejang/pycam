@@ -17,15 +17,30 @@
 
 ## 설치 파일(APK) 받기
 
-APK 는 GitHub Actions 에서 빌드됩니다.
+### 가장 쉬운 방법 — 직접 내려받기 (GitHub 로그인 불필요)
 
-1. 저장소의 **Actions → “BizCard Android APK”** 로 이동
-2. 최근 성공한 실행을 열고 **Artifacts → `bizcard-scanner-apk`** 다운로드
-3. 압축을 풀면 `bizcard-scanner-debug.apk` 가 들어 있습니다
-4. 파일을 휴대폰으로 옮긴 뒤 실행 → “출처를 알 수 없는 앱 설치” 를 허용하고 설치
+```
+https://github.com/maicklejang/pycam/releases/download/bizcard-latest/bizcard-scanner.apk
+```
 
-> `bizcard-scanner-debug.apk` 는 디버그 키로 서명되어 있어 그대로 설치할 수 있습니다.
-> 스토어 배포용 서명 APK 가 필요하면 아래 “릴리스 서명” 을 참고하세요.
+휴대폰 브라우저에서 위 주소를 열면 `bizcard-scanner.apk` 가 바로 내려받아집니다.
+설치할 때 "출처를 알 수 없는 앱 설치" 를 허용해 주세요. 디버그 키로 서명되어 있어
+그대로 설치됩니다.
+
+이 파일은 `master` 또는 `claude/business-card-contact-extractor-bs94u2` 브랜치에
+푸시될 때마다 `bizcard-latest` 프리릴리스에서 갱신됩니다. 주소는 바뀌지 않습니다.
+
+### 빌드 아티팩트에서 받기 (GitHub 로그인 필요)
+
+Actions → **BizCard Android APK** → 최근 성공한 실행 → 페이지 맨 아래 **Artifacts** →
+`bizcard-scanner-apk` 를 내려받아 압축을 풀면 두 파일이 나옵니다.
+
+| 파일 | 설명 |
+| --- | --- |
+| `bizcard-scanner-debug.apk` | **이것을 설치하세요.** 디버그 키로 서명되어 바로 설치됩니다 |
+| `bizcard-scanner-release-*.apk` | 서명이 없어 설치되지 않습니다. 스토어 배포용 입력물입니다 |
+
+아티팩트는 올라온 뒤 30일간 유지됩니다.
 
 ## 직접 빌드하기
 
